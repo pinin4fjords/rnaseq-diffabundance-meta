@@ -24,7 +24,7 @@ include { BAM_QC_RNASEQ                         } from '../../subworkflows/nf-co
 include { QUANTIFY_RSEM                         } from '../../subworkflows/nf-core/quantify_rsem'
 include { BAM_DEDUP_UMI                         } from '../../subworkflows/nf-core/bam_dedup_umi'
 
-include { ReadsInput; SampleRow; StringtieInput } from '../../modules/nf-core/types'
+include { ReadsInput; SampleRow; StringtieInput; ToolArgs } from '../../modules/nf-core/types'
 include { Bowtie2Aligned; StarAligned; MultiqcFiles; AlignedSample; Bam; Contaminants; StringtieSample; BigwigSample; PipelineInfo; UmiDedupBam; MarkdupBam; BamQcRnaseq; StringtieMerged; Hisat2Aligned; RrnaReferences; FastqQcTrimFilterSetstrandedness; QuantMerged; SampleRuns; TrimReadCount; TrimStatus; PercentMapped; MapStatus; PercentMappedPass; InferExperimentLog; StrandData; StrandStatus } from '../../modules/nf-core/types'
 include { RsemMergeSample } from '../../modules/nf-core/custom/rsemmergecounts/main'
 include { KallistoQuantSample } from '../../modules/nf-core/kallisto/quant/main'
@@ -36,8 +36,7 @@ include { SamtoolsIndexResult } from '../../modules/nf-core/samtools/index/main'
 include { StringtieResult } from '../../modules/nf-core/stringtie/stringtie/main'
 include { Deseq2Qc } from '../../modules/local/deseq2_qc/main'
 
-include { deseq2QcArgs; multiqcArgs; rustqcArgs; salmonIndexArgs; samtoolsIndexArgs; starAlignArgs; hisat2AlignArgs; bowtie2AlignArgs } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline/tool_args'
-include { umiExtractArgs                        } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline/tool_args'
+include { deseq2QcArgs; rustqcArgs; starAlignArgs; hisat2AlignArgs; bowtie2AlignArgs } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline/tool_args'
 include { readSamplesheet; samplesheetRowsToCsv } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline/samplesheet'
 include { classifyStrand                 } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline'
 include { getHisat2PercentMapped         } from '../../subworkflows/local/utils_nfcore_rnaseq_pipeline'
@@ -85,6 +84,7 @@ workflow RNASEQ {
 
     take:
     params: Record                                     // the pipeline's params
+    tool_args: ToolArgs                                // the tool arguments that follow from the params
     ch_sample_rows: Channel<SampleRow>                 // one row per sequencing run of each sample
     ch_fasta: Value<Path?>                             // genome.fasta
     ch_fai: Value<Path?>                               // genome.fai
@@ -209,12 +209,7 @@ workflow RNASEQ {
         params.save_merged_fastq,                   // save_merged_fastq
         params.stranded_threshold,                  // stranded_threshold
         params.unstranded_threshold,                // unstranded_threshold
-        params.extra_fqlint_args,                   // fq_lint_args
-        umiExtractArgs(params),                     // umi_extract_args
-        params.extra_fastp_args,                    // fastp_args
-        params.extra_trimgalore_args,               // trimgalore_args
-        params.use_gpu_ribodetector,                // use_gpu_ribodetector
-        salmonIndexArgs(params, false)              // salmon_index_args
+        tool_args                                   // tool_args
     )
 
     def ch_preprocessed: Channel<FastqQcTrimFilterSetstrandedness> = fastq_preprocessed.samples
@@ -270,7 +265,7 @@ workflow RNASEQ {
             params.use_sentieon_star,
             params.use_parabricks_star,
             params.skip_markduplicates,
-            samtoolsIndexArgs(params)
+            tool_args
         )
 
         ch_mqc_files = ch_mqc_files.mix(ch_star.map { r -> record(id: r.id, files: [r.star.log_final]) })
@@ -295,7 +290,7 @@ workflow RNASEQ {
             ch_fasta,
             ch_fai,
             params.save_unaligned,
-            samtoolsIndexArgs(params)
+            tool_args
         )
 
         ch_mqc_files = ch_mqc_files.mix(ch_bowtie2.map { r -> record(id: r.id, files: [r.bowtie2.log]) })
@@ -319,7 +314,7 @@ workflow RNASEQ {
             ch_fasta,
             ch_fai,
             params.save_unaligned || (params.contaminant_screening && params.contaminant_screening_input == 'unmapped'),
-            samtoolsIndexArgs(params)
+            tool_args
         )
 
         ch_mqc_files = ch_mqc_files.mix(ch_hisat2.map { r -> record(id: r.id, files: [r.hisat2.summary]) })
@@ -361,7 +356,7 @@ workflow RNASEQ {
             ch_transcriptome_bam,
             ch_transcript_fasta,
             params.umitools_dedup_primary_only,
-            samtoolsIndexArgs(params),
+            tool_args,
             params.umitools_grouping_method,
             params.umitools_umi_separator
         )
@@ -437,9 +432,7 @@ workflow RNASEQ {
             params.kallisto_quant_fraglen_sd,
             params.skip_quantification_merge,
             params.salmon_quant_libtype,
-            params.extra_salmon_quant_args,
-            params.extra_kallisto_quant_args,
-            null
+            tool_args
         )
 
         ch_quant_salmon = bam_salmon.salmon
@@ -482,7 +475,7 @@ workflow RNASEQ {
             ch_fasta,
             ch_fai,
             !params.use_rustqc,
-            samtoolsIndexArgs(params)
+            tool_args
         )
 
         // Only bam, bai and metrics are merged: joining the whole result would overwrite the aligner's samtools stats with null when RustQC skips them
@@ -774,9 +767,7 @@ workflow RNASEQ {
             params.kallisto_quant_fraglen_sd,
             params.skip_quantification_merge,
             params.salmon_quant_libtype,
-            params.extra_salmon_quant_args,
-            params.extra_kallisto_quant_args,
-            "${params.pseudo_aligner}.merged"
+            tool_args + record(se_prefix: "${params.pseudo_aligner}.merged")
         )
 
         ch_quant_pseudo          = pseudo.salmon
@@ -853,7 +844,7 @@ workflow RNASEQ {
             sample_status_header_multiqc,
             params.min_trimmed_reads,
             params.skip_quantification_merge,
-            multiqcArgs(params)
+            tool_args
         )
         ch_multiqc_report = ch_multiqc.map { r -> r.report }
     }

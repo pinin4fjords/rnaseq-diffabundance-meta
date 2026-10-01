@@ -32,8 +32,8 @@ working around them here.
   meta's `params` when included, so `--rnaseq.extra_star_align_args` never arrives and the meta would need duplicate
   top-level params. As the ADR and Ben Sherman's answer on [#7213](https://github.com/nextflow-io/nextflow/pull/7213) say,
   defaults belong in the process and values are passed in. The argument policy moves into functions next to the call,
-  the value is an optional field of the module's input record, and `task.ext.args`, when set, replaces it, so the usual
-  override hook still works. The cost is that vendored modules differ from nf-core/modules, so this lives on the component
+  the value is an optional field of the module's input record, taken from one `ToolArgs` record that each subworkflow
+  receives as a single `tool_args`, and `task.ext.args`, when set, replaces it, so the usual override hook still works. The cost is that vendored modules differ from nf-core/modules, so this lives on the component
   branches.
 - **Selectors work both ways.** Included processes get the include alias as a prefix, so selectors accept one.
 - **Outputs.** A pipeline returns channels and the meta chooses what to publish. rnaseq returns `gene_quant` and `gtf`
@@ -99,18 +99,22 @@ process {
 `fq lint` then runs with exactly those flags. Because it replaces, keep any flag the pipeline relies on; to only add
 flags, use the option instead.
 
-**How this relates to `args` on the module records.** Each tool's process takes its arguments from the `args` field of
-its input record, which the workflow fills from the pipeline option, and falls back to that only when `ext.args` is
-unset. For `fq lint`:
+**How this relates to `args` on the module records.** The pipeline builds all its tool arguments once, as a
+`ToolArgs` record from its params, and each subworkflow takes that as a single `tool_args`. The call site attaches
+only the argument string a tool needs to the record that enters its process, and the process uses it unless
+`ext.args` is set. For `fq lint`:
 
 ```
-rnaseq.extra_fqlint_args  ->  workflow: r + record(args: fq_lint_args)  ->  FqLintInput.args
-                                                                                |
-                      process script:  def args = task.ext.args ?: sample.args ?: ''
-                                                       ^ your config wins         ^ otherwise the pipeline's arguments
+rnaseq.extra_fqlint_args  ->  toolArgs(params)  ->  tool_args  (one take per subworkflow)
+                                                       |
+            call site:  r + record(args: tool_args.fq_lint)   ->  FqLintInput.args
+                                                       |
+            process script:  def args = task.ext.args ?: sample.args ?: ''
+                                        ^ your config wins       ^ otherwise the pipeline's arguments
 ```
 
-So an option reaches the tool through the record, with no config reading `params`, and config can still replace it.
+So an option reaches the tool through the records, with no config reading `params`, and config can still replace it.
+Attaching only the selected string matters for `-resume`: changing one option re-runs only the tasks that use it.
 TrimGalore is the one exception: its fixed options come from `ext.args` and the pipeline option from `args`, so
 `ext.args` replaces only the fixed options and `extra_trimgalore_args` is still applied.
 
