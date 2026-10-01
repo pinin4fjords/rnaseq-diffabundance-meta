@@ -37,9 +37,19 @@ NEXTFLOW=/path/to/nextflow scripts/run.sh             # small test run on nf-cor
   pipelines are supplied here (`conf/generated/` is produced by `scripts/vendor.sh`).
 - `assets/` holds the test samplesheet, sample metadata and contrasts.
 
+## Result
+
+A real run on the nf-core test data (pseudo-alignment only, `scripts/run.sh` with the default `params.json`)
+takes about two minutes and publishes `out/rnaseq/multiqc`, `out/rnaseq/quant` (merged gene counts, lengths
+and TPM) and `out/differentialabundance/report`.
+
 ## Notes
 
 - `--samples` is a samplesheet that Nextflow loads into one record per row, like rnaseq's own `--input`.
 - `rnaseq.*` params are passed as a nested record. Params that exist only in rnaseq's `nextflow.config`
   (for example `umitools_bc_pattern`) are not part of that record and are set at the top level.
+- differentialabundance validates its paramset against its own `nextflow_schema.json`, which refers to
+  `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
+- Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
+  current work directory.
 - `--quantification pseudo|aligned` selects which merged matrices rnaseq hands on.

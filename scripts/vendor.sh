@@ -10,7 +10,7 @@ cd "$(dirname "$0")/.."
 RNASEQ_REPO=https://github.com/nf-core/rnaseq
 RNASEQ_REF=21d0b581f          # feat/composable-input (nf-core/rnaseq#1966)
 DIFFAB_REPO=https://github.com/nf-core/differentialabundance
-DIFFAB_REF=0e60a7b1           # dev
+DIFFAB_REF=a1c84351           # feat/pipeline-composition on dev 0e60a7b1 (local, not yet pushed)
 
 vendor() { # name repo ref src-override
     local name=$1 repo=$2 ref=$3 src=${4:-}
@@ -28,6 +28,12 @@ vendor rnaseq "$RNASEQ_REPO" "$RNASEQ_REF" "${RNASEQ_SRC:-}"
 vendor differentialabundance "$DIFFAB_REPO" "$DIFFAB_REF" "${DIFFAB_SRC:-}"
 
 mkdir -p conf/generated
+
+# nf-schema resolves the "schema" entries of nextflow_schema.json against the project root, which is
+# this project when the pipeline is included, so the schemas of differentialabundance's input and
+# contrasts params have to exist at the same relative paths here.
+mkdir -p assets
+cp pipelines/nf-core/differentialabundance/assets/schema_*.json assets/
 RNA=pipelines/nf-core/rnaseq
 DA=pipelines/nf-core/differentialabundance
 

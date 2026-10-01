@@ -39,7 +39,6 @@ workflow {
     gene_lengths = ch_quant.map { r -> r.lengths_gene }
     gene_tpm     = ch_quant.map { r -> r.tpm_gene }
     report       = abundance.report_html.map { r -> r[1] }
-    diff_results = abundance.diff_results.map { r -> r[1] }
 }
 
 output {
@@ -57,8 +56,5 @@ output {
     }
     report: Channel<Path> {
         path 'differentialabundance/report'
-    }
-    diff_results: Channel<Path> {
-        path 'differentialabundance/tables'
     }
 }

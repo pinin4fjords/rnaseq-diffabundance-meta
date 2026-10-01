@@ -4,3 +4,4 @@ work/
 out/
 .nextflow*
 .nf-test*
+assets/schema_*.json

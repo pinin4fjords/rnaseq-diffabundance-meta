@@ -9,12 +9,15 @@ include { validateConfigurations        } from '../pipelines/nf-core/differentia
 include { addDifferentialRuntimeParams  } from '../pipelines/nf-core/differentialabundance/subworkflows/local/utils_nfcore_differentialabundance_pipeline/main'
 
 def diffabParamset(matrix, lengths, gtf, input, contrasts) {
-    // The nested rnaseq record and the samples channel are not differentialabundance params
+    // The meta-pipeline's own params are not differentialabundance params (and hold Path objects, which
+    // cannot be serialised during validation)
     def defaults = getDefaultConfigurations().collect { paramset ->
-        paramset.findAll { key, _value -> !(key in ['rnaseq', 'samples']) }
+        paramset.findAll { key, _value -> !(key in ['rnaseq', 'samples', 'sample_metadata', 'quantification']) }
     }
     def configured = defaults.collect { paramset ->
-        paramset + [ matrix: matrix, feature_length_matrix: lengths, gtf: gtf, input: input, contrasts: contrasts ]
+        // Paths are given as strings, as they are on the command line: the paramset is serialised to
+        // JSON during validation, which cannot handle Path objects
+        paramset + [ matrix: matrix.toUriString(), feature_length_matrix: lengths.toUriString(), gtf: gtf.toUriString(), input: input.toUriString(), contrasts: contrasts.toUriString() ]
     }
     def paramset = validateConfigurations(configured)
         .collect { it -> addDifferentialRuntimeParams(it) }
