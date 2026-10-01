@@ -1,7 +1,4 @@
 {
-  "samples": "assets/samplesheet.csv",
-  "sample_metadata": "assets/sample_metadata.csv",
-  "contrasts": "assets/contrasts.yaml",
   "pseudo_aligner": "salmon",
   "rnaseq": {
     "validate_params": false,
@@ -15,7 +12,8 @@
     "skip_qc": true,
     "skip_bbsplit": true,
     "skip_biotype_qc": true,
-    "remove_ribo_rna": false
+    "remove_ribo_rna": false,
+    "input": "assets/samplesheet.csv"
   },
   "diffab": {
     "study_name": "rnaseq_diffabundance",
@@ -37,6 +35,8 @@
     "filtering_min_abundance": 10,
     "deseq2_vst_nsub": 5,
     "seed": 10,
-    "outdir": "out"
+    "outdir": "out",
+    "input": "assets/sample_metadata.csv",
+    "contrasts": "assets/contrasts.yaml"
   }
 }

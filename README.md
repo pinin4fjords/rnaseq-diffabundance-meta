@@ -62,7 +62,7 @@ and TPM) and `out/differentialabundance/report`.
 
 ## Notes
 
-- `--samples` is a samplesheet that Nextflow loads into one record per row, like rnaseq's own `--input`.
+- Each pipeline's options are set under its own name: `--rnaseq.input` is the rnaseq samplesheet (Nextflow loads it into one record per row, as for rnaseq's own `--input`), `--diffab.input` the sample metadata and `--diffab.contrasts` the contrasts, and every other option of a pipeline is available the same way, for example `--rnaseq.extra_star_align_args` or `--diffab.deseq2_alpha`.
 - `rnaseq.*` params are passed as a nested record. rnaseq's process config reads some params as top-level params:
   `aligner`, `gencode`, `with_umi`, `pseudo_aligner` and the other params declared at the top of `main.nf` are also
   params of the pipeline itself, so they are set at the top level and passed into the record. Params that only the

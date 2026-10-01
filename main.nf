@@ -1,13 +1,9 @@
 nextflow.enable.types = true
 
 include { params as RnaseqParams ; workflow as NFCORE_RNASEQ } from './pipelines/nf-core/rnaseq'
-include { SampleRow                                          } from './pipelines/nf-core/rnaseq/modules/nf-core/types'
 include { params as DiffabParams ; workflow as NFCORE_DIFFERENTIALABUNDANCE } from './pipelines/nf-core/differentialabundance'
 
 params {
-    samples:         Channel<SampleRow>   // rnaseq samplesheet, one row per sequencing run
-    sample_metadata: Path                 // differentialabundance observations: a sample column and the experimental variables
-    contrasts:       Path                 // differentialabundance contrasts
     rnaseq:          RnaseqParams         // references and options of nf-core/rnaseq
     diffab:          DiffabParams         // options of nf-core/differentialabundance
 
@@ -32,7 +28,6 @@ workflow {
     // Quantify the samples. rnaseq starts differential abundance as soon as the merged matrices exist.
     rnaseq = NFCORE_RNASEQ(
         params.rnaseq + record(
-            input:                       params.samples,
             aligner:                     params.aligner,
             bam_csi_index:               params.bam_csi_index,
             contaminant_screening:       params.contaminant_screening,
@@ -53,8 +48,6 @@ workflow {
 
     abundance = NFCORE_DIFFERENTIALABUNDANCE(
         params.diffab + record(
-            input:                 channel.value(params.sample_metadata),
-            contrasts:             channel.value(params.contrasts),
             matrix:                ch_quant.map { quant -> quant.counts_gene },
             feature_length_matrix: ch_quant.map { quant -> quant.lengths_gene },
             gtf:                   rnaseq.gtf
