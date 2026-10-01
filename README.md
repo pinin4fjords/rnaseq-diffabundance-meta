@@ -26,7 +26,7 @@ and a patched nf-schema. `pipelines.json` records the branch and commit of each 
 ## Run
 
 ```bash
-scripts/vendor.sh              # (re)copies the pipelines listed in pipelines.json and generates conf/generated/
+scripts/vendor.sh              # (re)copies the pipelines listed in pipelines.json
 NEXTFLOW=/path/to/nextflow scripts/run.sh -stub-run   # wiring check
 NEXTFLOW=/path/to/nextflow scripts/run.sh             # small test run on nf-core test data
 ```
@@ -45,8 +45,10 @@ instead, without touching `pipelines.json`. The copies leave out each pipeline's
   pipelines contribute neither.
 - `lib/diffab.nf` builds differentialabundance's paramset from the rnaseq outputs.
 - `nextflow.config` is the configuration shell. An included pipeline contributes only its scripts, so the
-  manifest, resources, container settings, config params and the `ext` settings in `conf/modules/` of both
-  pipelines are supplied here (`conf/generated/` is produced by `scripts/vendor.sh`).
+  manifest, resources, container settings and the pipelines' own config are provided here: it includes each
+  pipeline's `conf/params.config` (defaults of the config params, which the pipelines and their process config
+  read as top-level params), `conf/process.config` (rnaseq) or `conf/modules.config` (differentialabundance),
+  and sets the process environment and shell that their `nextflow.config` files set.
 - `assets/` holds the test samplesheet, sample metadata and contrasts.
 
 ## Result
@@ -58,8 +60,11 @@ and TPM) and `out/differentialabundance/report`.
 ## Notes
 
 - `--samples` is a samplesheet that Nextflow loads into one record per row, like rnaseq's own `--input`.
-- `rnaseq.*` params are passed as a nested record. Params that exist only in rnaseq's `nextflow.config`
-  (for example `umitools_bc_pattern`) are not part of that record and are set at the top level.
+- `rnaseq.*` params are passed as a nested record. rnaseq's process config reads some params as top-level params:
+  `aligner`, `gencode`, `with_umi`, `pseudo_aligner` and the other params declared at the top of `main.nf` are also
+  params of the pipeline itself, so they are set at the top level and passed into the record. Params that only the
+  process config reads (for example `umitools_bc_pattern` or `extra_star_align_args`) are not part of the record and
+  are also set at the top level.
 - differentialabundance validates its paramset against its own `nextflow_schema.json`, which refers to
   `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the

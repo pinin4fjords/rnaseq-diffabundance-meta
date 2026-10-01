@@ -1,8 +1,6 @@
 #!/usr/bin/env bash
-# Copies nf-core/rnaseq and nf-core/differentialabundance into pipelines/nf-core/ and generates the
-# config that an including pipeline has to provide itself (included pipelines do not bring their config).
-# The copies, the generated config and assets/schema_*.json are committed, so the project runs as cloned;
-# rerun this script to update them.
+# Copies nf-core/rnaseq and nf-core/differentialabundance into pipelines/nf-core/. The copies and
+# assets/schema_*.json are committed, so the project runs as cloned; rerun this script to update them.
 #
 # Override the sources with local checkouts while developing:
 #   RNASEQ_SRC=~/projects/rnaseq-composable-input DIFFAB_SRC=~/projects/differentialabundance-composable scripts/vendor.sh
@@ -59,26 +57,9 @@ vendor() { # org name src-override
 vendor nf-core rnaseq "${RNASEQ_SRC:-}"
 vendor nf-core differentialabundance "${DIFFAB_SRC:-}"
 
-mkdir -p conf/generated
-
 # nf-schema resolves the "schema" entries of nextflow_schema.json against the project root, which is
 # this project when the pipeline is included, so the schemas of differentialabundance's input and
 # contrasts params have to exist at the same relative paths here.
 mkdir -p assets
 cp pipelines/nf-core/differentialabundance/assets/schema_*.json assets/
-RNA=pipelines/nf-core/rnaseq
-DA=pipelines/nf-core/differentialabundance
-
-# Config params of both pipelines. rnaseq's process config and differentialabundance's workflow read these
-# as top-level params, so they have to exist here even though rnaseq also receives them as params.rnaseq.
-sed -n '/^params {/,/^}/p' "$RNA/nextflow.config" | grep -v "outdir" > conf/generated/rnaseq_params.config
-sed -n '/^params {/,/^}/p' "$DA/nextflow.config" > conf/generated/diffabundance_params.config
-
-# Process config of the two pipelines. includeConfig resolves relative to the including file, so the
-# generated file lists paths relative to conf/generated/. The selectors match the include aliases.
-{
-    grep -E "^includeConfig '(\./)?(conf/modules/|subworkflows/)" "$RNA/nextflow.config" \
-        | sed -E "s#includeConfig '(\./)?#includeConfig '../../$RNA/#"
-    echo "includeConfig '../../$DA/conf/modules.config'"
-} > conf/generated/process.config
-echo "vendored rnaseq and differentialabundance; generated conf/generated/*"
+echo "vendored rnaseq and differentialabundance"

@@ -2,6 +2,7 @@
   "samples": "assets/samplesheet.csv",
   "sample_metadata": "assets/sample_metadata.csv",
   "contrasts": "assets/contrasts.yaml",
+  "pseudo_aligner": "salmon",
   "rnaseq": {
     "validate_params": false,
     "fasta": "https://raw.githubusercontent.com/nf-core/test-datasets/626c8fab639062eade4b10747e919341cbf9b41a/reference/genome.fasta",
@@ -11,7 +12,6 @@
     "additional_fasta": "https://raw.githubusercontent.com/nf-core/test-datasets/626c8fab639062eade4b10747e919341cbf9b41a/reference/gfp.fa.gz",
     "salmon_index": "https://raw.githubusercontent.com/nf-core/test-datasets/cad884e7fbe5617dcd55bdd07d9ddf65b54febe4/reference/salmon_2.7.0.tar.gz",
     "skip_alignment": true,
-    "pseudo_aligner": "salmon",
     "skip_qc": true,
     "skip_bbsplit": true,
     "skip_biotype_qc": true,

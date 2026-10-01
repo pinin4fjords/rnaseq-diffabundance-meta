@@ -1,7 +1,7 @@
 //
 // Builds the paramset that nf-core/differentialabundance takes from the merged rnaseq outputs.
 // Untyped, because differentialabundance is, and because it reads its defaults from the top-level
-// params that the meta-pipeline's config provides (conf/generated/diffabundance_params.config).
+// params that the meta-pipeline's config provides (pipelines/nf-core/differentialabundance/conf/params.config).
 //
 
 include { getDefaultConfigurations      } from '../pipelines/nf-core/differentialabundance/subworkflows/local/utils_nfcore_differentialabundance_pipeline/main'
