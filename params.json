@@ -16,5 +16,27 @@
     "skip_bbsplit": true,
     "skip_biotype_qc": true,
     "remove_ribo_rna": false
+  },
+  "diffab": {
+    "study_name": "rnaseq_diffabundance",
+    "paramset_name": "rnaseq",
+    "study_type": "rnaseq",
+    "study_abundance_type": "counts",
+    "features_type": "gene",
+    "features_id_col": "gene_id",
+    "features_name_col": "gene_name",
+    "features_metadata_cols": "gene_id,gene_name,gene_biotype",
+    "differential_feature_id_column": "gene_id",
+    "observations_id_col": "sample",
+    "observations_name_col": "sample",
+    "differential_method": "deseq2",
+    "exploratory_assay_names": "raw,normalised,variance_stabilised",
+    "exploratory_final_assay": "variance_stabilised",
+    "exploratory_log2_assays": "raw,normalised",
+    "differential_file_suffix": ".deseq2.results.tsv",
+    "filtering_min_abundance": 10,
+    "deseq2_vst_nsub": 5,
+    "seed": 10,
+    "outdir": "out"
   }
 }

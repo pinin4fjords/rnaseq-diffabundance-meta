@@ -2,14 +2,14 @@ nextflow.enable.types = true
 
 include { params as RnaseqParams ; workflow as NFCORE_RNASEQ } from './pipelines/nf-core/rnaseq'
 include { SampleRow                                          } from './pipelines/nf-core/rnaseq/modules/nf-core/types'
-include { DIFFERENTIALABUNDANCE                              } from './pipelines/nf-core/differentialabundance/workflows/differentialabundance'
-include { buildParamset                                      } from './pipelines/nf-core/differentialabundance/subworkflows/local/utils_nfcore_differentialabundance_pipeline/main'
+include { params as DiffabParams ; workflow as NFCORE_DIFFERENTIALABUNDANCE } from './pipelines/nf-core/differentialabundance'
 
 params {
     samples:         Channel<SampleRow>   // rnaseq samplesheet, one row per sequencing run
     sample_metadata: Path                 // differentialabundance observations: a sample column and the experimental variables
     contrasts:       Path                 // differentialabundance contrasts
     rnaseq:          RnaseqParams         // references and options of nf-core/rnaseq
+    diffab:          DiffabParams         // options of nf-core/differentialabundance
 
     // rnaseq params that its process config reads as top-level params as well as the pipeline itself.
     // Set them here, not in params.rnaseq, so that both see the same value.
@@ -48,27 +48,25 @@ workflow {
         )
     )
 
-    // One differentialabundance paramset, with rnaseq's merged gene-level outputs as its input files
-    ch_paramsets = rnaseq.gene_quant
-        .combine(gtf: rnaseq.gtf)
-        .map { quant ->
-            buildParamset(
-                matrix:                quant.counts_gene,
-                feature_length_matrix: quant.lengths_gene,
-                gtf:                   quant.gtf,
-                input:                 params.sample_metadata,
-                contrasts:             params.contrasts
-            )
-        }
+    // differentialabundance takes rnaseq's merged gene-level outputs as its matrix and feature lengths
+    def ch_quant = rnaseq.gene_quant.collect().map { quants -> quants.toList().first() }
 
-    abundance = DIFFERENTIALABUNDANCE( ch_paramsets )
+    abundance = NFCORE_DIFFERENTIALABUNDANCE(
+        params.diffab + record(
+            input:                 channel.value(params.sample_metadata),
+            contrasts:             channel.value(params.contrasts),
+            matrix:                ch_quant.map { quant -> quant.counts_gene },
+            feature_length_matrix: ch_quant.map { quant -> quant.lengths_gene },
+            gtf:                   rnaseq.gtf
+        )
+    )
 
     publish:
     multiqc      = rnaseq.multiqc.map { r -> r.report }
     gene_counts  = rnaseq.gene_quant.map { r -> r.counts_gene }
     gene_lengths = rnaseq.gene_quant.map { r -> r.lengths_gene }
     gene_tpm     = rnaseq.gene_quant.map { r -> r.tpm_gene }
-    report       = abundance.report_html.map { r -> r[1] }
+    report       = abundance.report.filter { r -> r.name == 'report_html' }.flatMap { r -> r.files }
 }
 
 output {

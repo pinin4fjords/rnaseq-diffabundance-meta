@@ -43,12 +43,15 @@ instead, without touching `pipelines.json`. The copies leave out each pipeline's
 - `main.nf` includes both pipelines, wires rnaseq's outputs into differentialabundance and declares the
   outputs that are published. The meta-pipeline declares its own `params` and `output` blocks; included
   pipelines contribute neither.
-- differentialabundance builds its paramset with its own `buildParamset()`, here from the rnaseq outputs.
+- differentialabundance is included like rnaseq (`params as DiffabParams`, `workflow as NFCORE_DIFFERENTIALABUNDANCE`):
+  its options are the nested record `params.diffab`, and rnaseq's merged matrices, the annotation and the static
+  sample metadata and contrasts are given as its files.
 - `nextflow.config` is the configuration shell. An included pipeline contributes only its scripts, so the
-  manifest, resources, container settings and the pipelines' own config are provided here: it includes each
-  pipeline's `conf/params.config` (defaults of the config params, which the pipelines and their process config
-  read as top-level params), `conf/process.config` (rnaseq) or `conf/modules.config` (differentialabundance),
-  and sets the process environment and shell that their `nextflow.config` files set.
+  manifest, resources, container settings and the pipelines' own config are provided here: it includes rnaseq's
+  `conf/params.config` (defaults of the config params that its process config reads as top-level params) and
+  `conf/process.config`, differentialabundance's `conf/modules.config`, sets the three top-level params that
+  differentialabundance's process config reads (`outdir`, `publish_dir_mode`, `shinyngs_deploy_to_shinyapps_io`), and
+  sets the process environment and shell that the pipelines' `nextflow.config` files set.
 - `assets/` holds the test samplesheet, sample metadata and contrasts.
 
 ## Result
@@ -65,8 +68,10 @@ and TPM) and `out/differentialabundance/report`.
   params of the pipeline itself, so they are set at the top level and passed into the record. Params that only the
   process config reads (for example `umitools_bc_pattern` or `extra_star_align_args`) are not part of the record and
   are also set at the top level.
-- differentialabundance validates its paramset against its own `nextflow_schema.json`, which refers to
-  `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
+- differentialabundance builds the paramset of the run from `params.diffab` and validates it against its own
+  `nextflow_schema.json`, so the params that schema requires (here `outdir`) are part of the record. It also refers
+  to `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
+  The `rnaseq` profile of differentialabundance is a set of param values, which `params.json` gives as `diffab.*`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
   current work directory.
 - rnaseq returns `gene_quant`, the merged gene matrices of its primary quantifier (alignment-based unless
