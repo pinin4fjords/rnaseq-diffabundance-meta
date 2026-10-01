@@ -32,8 +32,8 @@ working around them here.
   meta's `params` when included, so `--rnaseq.extra_star_align_args` never arrives and the meta would need duplicate
   top-level params. As the ADR and Ben Sherman's answer on [#7213](https://github.com/nextflow-io/nextflow/pull/7213) say,
   defaults belong in the process and values are passed in. The argument policy moves into functions next to the call,
-  the value is an optional field of the module's input record, and `task.ext.args` is still appended last as the
-  override hook. The cost is that vendored modules differ from nf-core/modules, so this lives on the component
+  the value is an optional field of the module's input record, and `task.ext.args`, when set, replaces it, so the usual
+  override hook still works. The cost is that vendored modules differ from nf-core/modules, so this lives on the component
   branches.
 - **Selectors work both ways.** Included processes get the include alias as a prefix, so selectors accept one.
 - **Outputs.** A pipeline returns channels and the meta chooses what to publish. rnaseq returns `gene_quant` and `gtf`
@@ -68,6 +68,36 @@ change its entry (or set `RNASEQ_REF` / `DIFFERENTIALABUNDANCE_REF` to a branch 
 `scripts/vendor.sh`, which writes the resolved commit back. `RNASEQ_SRC` and `DIFFAB_SRC` vendor local checkouts
 instead, without touching `pipelines.json`. The copies leave out each pipeline's tests, CI files and docs (other than
 `docs/images/`).
+
+## Changing tool arguments
+
+No code change is needed, and there are two routes.
+
+**A pipeline option** adds to the arguments the pipeline builds for a tool. Set it in `params.json` (or as
+`--rnaseq.extra_trimgalore_args '--length 35'` on the command line):
+
+```json
+{ "rnaseq": { "extra_trimgalore_args": "--length 35" } }
+```
+
+TrimGalore then runs `trim_galore --fastqc_args '-t 4' --length 35 ...`. The other tools have the same kind of option
+(`extra_star_align_args`, `extra_salmon_quant_args`, `extra_fastp_args`, ...), and differentialabundance's options are
+under `diffab`, for example `--diffab.deseq2_alpha 0.01`.
+
+**`ext.args` in your own config** replaces the arguments the pipeline builds for that tool, as it does when a pipeline
+runs directly. The selector carries the include alias, `NFCORE_RNASEQ`:
+
+```groovy
+// my.config, used with: scripts/run.sh -c my.config
+process {
+    withName: 'NFCORE_RNASEQ:.*:FQ_LINT' {
+        ext.args = '--disable-validator P001 --disable-validator P002'
+    }
+}
+```
+
+`fq lint` then runs with exactly those flags. Because it replaces, keep any flag the pipeline relies on; to only add
+flags, use the option instead.
 
 ## Layout
 
