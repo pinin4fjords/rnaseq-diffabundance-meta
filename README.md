@@ -11,62 +11,34 @@ samples -> NFCORE_RNASEQ -> merged counts / lengths / GTF -> DIFFERENTIALABUNDAN
 
 ## Design choices
 
-The aim is the smallest meta-pipeline that keeps everything the two pipelines can do: this repository adds a short
-`main.nf`, a configuration shell and a params file on top of the vendored pipelines. That only works if the pipelines
-follow the standards in the [pipeline composition ADR](https://github.com/nextflow-io/nextflow/blob/master/adr/20260608-pipeline-composition.md),
-so the component branches ([rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966),
+Goal: a meta-pipeline that is just `main.nf`, a config shell and a params file on top of the vendored pipelines, with
+nothing lost. That needs the component pipelines to follow the
+[pipeline composition ADR](https://github.com/nextflow-io/nextflow/blob/master/adr/20260608-pipeline-composition.md), so the
+component branches ([rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966),
 [differentialabundance#758](https://github.com/nf-core/differentialabundance/pull/758)) change the pipelines instead of
-working around them here. The reasons, most important first:
+working around them here.
 
-**Pipelines are included as pipelines.** `include { params as RnaseqParams ; workflow as NFCORE_RNASEQ }` takes the typed
-`params {}` block as the interface, so each pipeline's options are a record under its own name (`rnaseq.*`, `diffab.*`)
-and cannot collide, and its published outputs are returned as channels. Because rnaseq's merged matrices are channels,
-differentialabundance starts as soon as they exist, and the whole analysis is one DAG that `-resume` covers.
-
-**An included pipeline brings its scripts, not its config.** The ADR is explicit that the meta-pipeline provides the
-configuration, and that process config can be reused if it sits in its own file. Both pipelines therefore keep their
-config params defaults in `conf/params.config` and their process config in its own file, included from their
-`nextflow.config` at the same place as before (the resolved config of a standalone run is unchanged). The meta includes
-those files instead of copying or generating them, and adds only what the ADR says it must own: the manifest, the
-plugin, the executor, container and resource settings, and the process environment and shell.
-
-**Pipeline params are read in one place.** In a composed run the global `params` belongs to the meta-pipeline, so any
-code outside the entry workflow that reads `params.x` silently gets the wrong value (a composed run of the unmodified
-pipeline reported dozens of undefined params). The component branches pass the pipeline's params record down explicitly,
-use `moduleDir` instead of `projectDir`, and keep scripts in module templates instead of `bin/`, which is not on the
-path of an included pipeline's processes (a composed run failed with `command not found` for a script in `bin/`).
-
-**Tool arguments are passed to processes, not read by config.** nf-core pipelines usually write
-`ext.args = { params.extra_star_align_args ?: '' }` in their config. That works when the pipeline runs directly, but when
-it is included the closure sees the meta-pipeline's `params`, not the `rnaseq` record: an option set as
-`--rnaseq.extra_star_align_args` never reaches it, the meta-pipeline would have to declare copies of such params at the
-top level and keep them in sync, and one pipeline could not be called twice with different tool settings. The ADR's
-guidance, and Ben Sherman's answer on the [#7213 review](https://github.com/nextflow-io/nextflow/pull/7213), is that
-Nextflow does not know which config belongs to an included workflow, so defaults should be defined in the process
-definition and values passed as process inputs. In rnaseq the argument policy therefore moves from the config closures
-into plain functions next to the call, and the value travels as an optional field of the module's input record.
-`task.ext.args` is still appended last, so a meta-pipeline or user can override any tool setting with an alias-qualified
-selector (`withName: 'NFCORE_RNASEQ:.*:STAR_ALIGN' { ext.args = ... }`). Only the process that uses a value receives it,
-so changing one setting invalidates only the tasks it affects. The cost is that the vendored modules' input records
-differ from nf-core/modules, which is why this lives on the component branches and would be proposed upstream
-separately. Params that only affect configuration (publish mode, institutional config, resource caps, container
-options) stay in config, as the ADR recommends. This change is in progress on rnaseq#1966; until it lands, `main.nf`
-declares the rnaseq params that its process config still reads.
-
-**Selectors must work both ways.** An included pipeline's processes are prefixed with the include alias, so a selector
-such as `NFCORE_RNASEQ:RNASEQ:...` never matches in a composed run. The pipelines' selectors accept a prefix, and a
-composed run is checked for selectors that match nothing.
-
-**Outputs.** A pipeline's outputs are channels returned to its caller, and the meta-pipeline decides what to publish.
-rnaseq returns `gene_quant` (the merged gene matrices of its primary quantifier) and `gtf` alongside its other outputs;
-those two are declared with `enabled false`, so they are returned but not published by rnaseq. differentialabundance is
-a typed pipeline with a typed `output {}` block, and takes the matrix, feature lengths and annotation as dataflow values.
-
-**Vendored and pinned.** Until there is a pipeline registry the pipelines are copied under `pipelines/nf-core/` and
-`pipelines.json` records where each came from, in the shape of an nf-core `modules.json`.
-
-**Temporary pieces.** Two things are only here until they are released upstream: a Nextflow build that contains #7213,
-and a patched nf-schema, because `validateParameters` blocks forever when a pipeline declares a `Channel` param.
+- **Included as pipelines.** The typed `params {}` block is the interface: one record per pipeline (`rnaseq.*`,
+  `diffab.*`), no name collisions, outputs as channels. rnaseq's matrices feed differentialabundance directly: one DAG,
+  one `-resume`.
+- **Config is the meta's job, so the pipelines ship it as loadable files.** An included pipeline's `nextflow.config` is
+  not loaded. Each pipeline keeps its params defaults and process config in their own files, included from its
+  `nextflow.config` (standalone runs are unchanged) and from the meta, which adds only the manifest, plugin, executor,
+  containers, resources and env.
+- **Params are read in one place.** In a composed run the global `params` is the meta's, so code outside the entry
+  workflow that reads it gets the wrong values. The pipelines pass their params record down, use `moduleDir` instead of
+  `projectDir`, and use module templates instead of `bin/`, which is not on an included pipeline's process path.
+- **Tool arguments are process inputs, not config closures.** `ext.args = { params.extra_star_align_args }` reads the
+  meta's `params` when included, so `--rnaseq.extra_star_align_args` never arrives and the meta would need duplicate
+  top-level params. As the ADR and Ben Sherman's answer on [#7213](https://github.com/nextflow-io/nextflow/pull/7213) say,
+  defaults belong in the process and values are passed in. The argument policy moves into functions next to the call,
+  the value is an optional field of the module's input record, and `task.ext.args` is still appended last as the
+  override hook. The cost is that vendored modules differ from nf-core/modules, so this lives on the component
+  branches. In progress on rnaseq#1966; until it lands, `main.nf` declares the params rnaseq's config still reads.
+- **Selectors work both ways.** Included processes get the include alias as a prefix, so selectors accept one.
+- **Outputs.** A pipeline returns channels and the meta chooses what to publish. rnaseq returns `gene_quant` and `gtf`
+  without publishing them.
+- **Temporary.** A Nextflow build with #7213, and a patched nf-schema (`validateParameters` blocks on `Channel` params).
 
 ## Status
 
