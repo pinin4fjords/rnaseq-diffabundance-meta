@@ -51,14 +51,13 @@ and a patched nf-schema. `pipelines.json` records the branch and commit of each 
 
 - A Nextflow build that includes #7213 (not in a release yet), as `$NEXTFLOW`
 - Docker
-- A patched nf-schema (`2.7.2-channel.4`, loaded through `NXF_PLUGINS_TEST_REPOSITORY` by `scripts/run.sh`),
+- A patched nf-schema (`2.7.2-channel.5`, loaded through `NXF_PLUGINS_TEST_REPOSITORY` by `scripts/run.sh`),
   because `validateParameters` blocks on `Channel` params in the released plugin
 
 ## Run
 
 ```bash
 scripts/vendor.sh              # (re)copies the pipelines listed in pipelines.json
-NEXTFLOW=/path/to/nextflow scripts/run.sh -stub-run   # wiring check
 NEXTFLOW=/path/to/nextflow scripts/run.sh             # small test run on nf-core test data
 ```
 
