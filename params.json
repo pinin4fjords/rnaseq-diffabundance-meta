@@ -1,5 +1,4 @@
 {
-  "pseudo_aligner": "salmon",
   "rnaseq": {
     "validate_params": false,
     "fasta": "https://raw.githubusercontent.com/nf-core/test-datasets/626c8fab639062eade4b10747e919341cbf9b41a/reference/genome.fasta",
@@ -13,7 +12,8 @@
     "skip_bbsplit": true,
     "skip_biotype_qc": true,
     "remove_ribo_rna": false,
-    "input": "assets/samplesheet.csv"
+    "input": "assets/samplesheet.csv",
+    "pseudo_aligner": "salmon"
   },
   "diffab": {
     "study_name": "rnaseq_diffabundance",

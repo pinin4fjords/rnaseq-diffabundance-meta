@@ -26,6 +26,7 @@ params {
     email:                       String? = null
 
     // Reference genome options
+    genome:                      String? = null
     fasta:                       String? = getGenomeAttribute('fasta')
     gtf:                         String? = getGenomeAttribute('gtf')
     gff:                         String? = getGenomeAttribute('gff')
@@ -46,9 +47,15 @@ params {
     gtf_extra_attributes:        String = 'gene_name'
     gtf_group_features:          String = 'gene_id'
     featurecounts_group_type:    String = 'gene_biotype'
+    featurecounts_feature_type:  String = 'exon'
+    skip_gtf_transcript_filter:  Boolean = false
+    arm:                         Boolean = false
     // Read trimming options
     trimmer:                     String = 'trimgalore'
     min_trimmed_reads:           Integer = 10000
+    extra_trimgalore_args:       String? = null
+    extra_fastp_args:            String? = null
+    extra_fqlint_args:           String = '--disable-validator P001'
 
     // Read filtering options
     bbsplit_fasta_list:          String? = null
@@ -58,9 +65,15 @@ params {
     ribo_removal_tool:           String = 'sortmerna'
     bowtie2_rrna_index:          String? = null
     ribo_database_manifest:      String = "${moduleDir}/assets/rrna-db-defaults.txt"
+    use_gpu_ribodetector:        Boolean = false
 
     // UMI options
     with_umi:                    Boolean = false
+    umitools_extract_method:     String = 'string'
+    umitools_grouping_method:    String = 'directional'
+    umitools_bc_pattern:         String?
+    umitools_bc_pattern2:        String?
+    umitools_umi_separator:      String?
     umi_dedup_tool:              String = 'umitools'
     umi_discard_read:            Integer = 0
     umitools_dedup_stats:        Boolean = false
@@ -73,6 +86,14 @@ params {
     pseudo_aligner:              String?
     bam_csi_index:               Boolean = false
     star_ignore_sjdbgtf:         Boolean = false
+    pseudo_aligner_kmer_size:    Integer = 31
+    salmon_quant_libtype:        String?
+    extra_star_align_args:       String?
+    extra_hisat2_align_args:     String?
+    extra_bowtie2_align_args:    String?
+    extra_salmon_index_args:     String?
+    extra_salmon_quant_args:     String?
+    extra_kallisto_quant_args:   String?
     min_mapped_reads:            Float = 5.0
     seq_center:                  String?
     seq_platform:                String?
@@ -98,6 +119,8 @@ params {
     rseqc_modules:               String = 'bam_stat,inner_distance,infer_experiment,junction_annotation,junction_saturation,read_distribution,read_duplication'
     contaminant_screening:       String?
     contaminant_screening_input: String = 'unmapped'
+    bracken_precision:           String = 'S'
+    deseq2_vst:                  Boolean = true
     kraken_db:                   String? = null
     sylph_db:                    Path? = null
     sylph_taxonomy:              Path? = null
@@ -133,6 +156,7 @@ params {
     multiqc_config:              Path? = null
     multiqc_logo:                Path? = null
     multiqc_methods_description: Path? = null
+    multiqc_title:               String?
     validate_params:             Boolean = true
     help:                        String? = null
     help_full:                   Boolean = false
@@ -154,6 +178,7 @@ include { checkMaxContigSize         } from './subworkflows/local/utils_nfcore_r
 include { defineQcTools              } from './subworkflows/local/utils_nfcore_rnaseq_pipeline'
 include { getGenomeAttribute         } from './subworkflows/local/utils_nfcore_rnaseq_pipeline'
 include { isStarIndexLegacy          } from './subworkflows/local/utils_nfcore_rnaseq_pipeline'
+include { kallistoIndexArgs; salmonIndexArgs } from './subworkflows/local/utils_nfcore_rnaseq_pipeline/tool_args'
 
 include { AlignedSample; LintFile; SampleRow; SamplesheetRow; Contaminants; StringtieSample; BigwigSample; PipelineInfo; GenomeArtifact; UmiDedupBam; MarkdupBam; BamQcRnaseq; StringtieMerged; RrnaReferences; FastqQcTrimFilterSetstrandedness; QuantMerged; TrimStatus; MapStatus; StrandStatus } from './modules/nf-core/types'
 include { RsemMergeSample } from './modules/nf-core/custom/rsemmergecounts/main'
@@ -206,7 +231,9 @@ workflow NFCORE_RNASEQ {
         params.skip_pseudo_alignment,
         params.use_sentieon_star,
         params.contaminant_screening,
-        params.prokaryotic
+        params.prokaryotic,
+        params.skip_gtf_transcript_filter,
+        params.genome
     )
 
     //
@@ -239,7 +266,10 @@ workflow NFCORE_RNASEQ {
         params.use_parabricks_star,
         isStarIndexLegacy(params) ? true : false,
         params.hisat2_build_memory,
-        params.input.collect().map { rows -> rows.any { row -> row.strandedness == 'auto' } }
+        params.input.collect().map { rows -> rows.any { row -> row.strandedness == 'auto' } },
+        params.prokaryotic,
+        salmonIndexArgs(params, true),
+        kallistoIndexArgs(params)
     )
 
     // Check if contigs in genome fasta file > 512 Mbp
@@ -301,6 +331,7 @@ workflow NFCORE_RNASEQ {
         .join(ch_runs, by: 'id')
         .join(results.percent_mapped, by: 'id')
         .flatMap { r ->
+            def aligned_dir = "${params.skip_quantification_merge ? "${r.id}/" : ''}${params.aligner}/"
             r.runs.collect { run ->
                 record(
                     sample:            r.id,
@@ -309,9 +340,9 @@ workflow NFCORE_RNASEQ {
                     strandedness:      r.meta.strandedness,
                     seq_platform:      r.meta.seq_platform ?: params.seq_platform,
                     seq_center:        r.meta.seq_center ?: params.seq_center,
-                    genome_bam:        r.bam != null ? "${workflow.outputDir}/${alignedDir(r.id)}${r.bam.name}" : null,
+                    genome_bam:        r.bam != null ? "${workflow.outputDir}/${aligned_dir}${r.bam.name}" : null,
                     percent_mapped:    r.percent_mapped,
-                    transcriptome_bam: r.transcriptome_bam != null ? "${workflow.outputDir}/${alignedDir(r.id)}${r.transcriptome_bam.name}" : null
+                    transcriptome_bam: r.transcriptome_bam != null ? "${workflow.outputDir}/${aligned_dir}${r.transcriptome_bam.name}" : null
                 )
             }
         }
