@@ -99,6 +99,21 @@ process {
 `fq lint` then runs with exactly those flags. Because it replaces, keep any flag the pipeline relies on; to only add
 flags, use the option instead.
 
+**How this relates to `args` on the module records.** Each tool's process takes its arguments from the `args` field of
+its input record, which the workflow fills from the pipeline option, and falls back to that only when `ext.args` is
+unset. For `fq lint`:
+
+```
+rnaseq.extra_fqlint_args  ->  workflow: r + record(args: fq_lint_args)  ->  FqLintInput.args
+                                                                                |
+                      process script:  def args = task.ext.args ?: sample.args ?: ''
+                                                       ^ your config wins         ^ otherwise the pipeline's arguments
+```
+
+So an option reaches the tool through the record, with no config reading `params`, and config can still replace it.
+TrimGalore is the one exception: its fixed options come from `ext.args` and the pipeline option from `args`, so
+`ext.args` replaces only the fixed options and `extra_trimgalore_args` is still applied.
+
 ## Layout
 
 - `main.nf` includes both pipelines, wires rnaseq's outputs into differentialabundance and declares the
