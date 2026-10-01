@@ -21,7 +21,7 @@
         "nf-core": {
           "differentialabundance": {
             "branch": "feat/pipeline-composition",
-            "git_sha": "59719453efaa7995680e78899cf709ad87fe8405",
+            "git_sha": "fc97021819e1675bc4e709d59a1885be5b79547d",
             "installed_by": [
               "pipelines"
             ],

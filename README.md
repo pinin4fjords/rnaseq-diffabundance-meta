@@ -43,7 +43,7 @@ instead, without touching `pipelines.json`. The copies leave out each pipeline's
 - `main.nf` includes both pipelines, wires rnaseq's outputs into differentialabundance and declares the
   outputs that are published. The meta-pipeline declares its own `params` and `output` blocks; included
   pipelines contribute neither.
-- `lib/diffab.nf` builds differentialabundance's paramset from the rnaseq outputs.
+- differentialabundance builds its paramset with its own `buildParamset()`, here from the rnaseq outputs.
 - `nextflow.config` is the configuration shell. An included pipeline contributes only its scripts, so the
   manifest, resources, container settings and the pipelines' own config are provided here: it includes each
   pipeline's `conf/params.config` (defaults of the config params, which the pipelines and their process config

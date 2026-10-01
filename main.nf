@@ -3,7 +3,7 @@ nextflow.enable.types = true
 include { params as RnaseqParams ; workflow as NFCORE_RNASEQ } from './pipelines/nf-core/rnaseq'
 include { SampleRow                                          } from './pipelines/nf-core/rnaseq/modules/nf-core/types'
 include { DIFFERENTIALABUNDANCE                              } from './pipelines/nf-core/differentialabundance/workflows/differentialabundance'
-include { diffabParamset                                     } from './lib/diffab'
+include { buildParamset                                      } from './pipelines/nf-core/differentialabundance/subworkflows/local/utils_nfcore_differentialabundance_pipeline/main'
 
 params {
     samples:         Channel<SampleRow>   // rnaseq samplesheet, one row per sequencing run
@@ -48,11 +48,17 @@ workflow {
         )
     )
 
-    // One differentialabundance paramset built from rnaseq's merged gene-level outputs
+    // One differentialabundance paramset, with rnaseq's merged gene-level outputs as its input files
     ch_paramsets = rnaseq.gene_quant
         .combine(gtf: rnaseq.gtf)
         .map { quant ->
-            diffabParamset(quant.counts_gene, quant.lengths_gene, quant.gtf, params.sample_metadata, params.contrasts)
+            buildParamset(
+                matrix:                quant.counts_gene,
+                feature_length_matrix: quant.lengths_gene,
+                gtf:                   quant.gtf,
+                input:                 params.sample_metadata,
+                contrasts:             params.contrasts
+            )
         }
 
     abundance = DIFFERENTIALABUNDANCE( ch_paramsets )
