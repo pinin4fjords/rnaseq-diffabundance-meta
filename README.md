@@ -51,7 +51,7 @@ and a patched nf-schema. `pipelines.json` records the branch and commit of each 
 
 - A Nextflow build that includes #7213 (not in a release yet), as `$NEXTFLOW`
 - Docker
-- A patched nf-schema (`2.7.2-channel.3`, loaded through `NXF_PLUGINS_TEST_REPOSITORY` by `scripts/run.sh`),
+- A patched nf-schema (`2.7.2-channel.4`, loaded through `NXF_PLUGINS_TEST_REPOSITORY` by `scripts/run.sh`),
   because `validateParameters` blocks on `Channel` params in the released plugin
 
 ## Run
@@ -99,8 +99,7 @@ and TPM) and `out/differentialabundance/report`.
   process config reads (for example `umitools_bc_pattern` or `extra_star_align_args`) are not part of the record and
   are also set at the top level.
 - differentialabundance builds the paramset of the run from `params.diffab` and validates it against its own
-  `nextflow_schema.json`. It also refers
-  to `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
+  `nextflow_schema.json`. 
   The `rnaseq` profile of differentialabundance is a set of param values, which `params.json` gives as `diffab.*`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
   current work directory.

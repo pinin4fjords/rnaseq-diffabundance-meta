@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Copies nf-core/rnaseq and nf-core/differentialabundance into pipelines/nf-core/. The copies and
-# assets/schema_*.json are committed, so the project runs as cloned; rerun this script to update them.
+# are committed, so the project runs as cloned; rerun this script to update them.
 #
 # Override the sources with local checkouts while developing:
 #   RNASEQ_SRC=~/projects/rnaseq-composable-input DIFFAB_SRC=~/projects/differentialabundance-composable scripts/vendor.sh
@@ -57,9 +57,4 @@ vendor() { # org name src-override
 vendor nf-core rnaseq "${RNASEQ_SRC:-}"
 vendor nf-core differentialabundance "${DIFFAB_SRC:-}"
 
-# nf-schema resolves the "schema" entries of nextflow_schema.json against the project root, which is
-# this project when the pipeline is included, so the schemas of differentialabundance's input and
-# contrasts params have to exist at the same relative paths here.
-mkdir -p assets
-cp pipelines/nf-core/differentialabundance/assets/schema_*.json assets/
 echo "vendored rnaseq and differentialabundance"
