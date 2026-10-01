@@ -80,8 +80,7 @@ instead, without touching `pipelines.json`. The copies leave out each pipeline's
 - `nextflow.config` is the configuration shell. An included pipeline contributes only its scripts, so the
   manifest, resources, container settings and the pipelines' own config are provided here: it includes rnaseq's
   `conf/params.config` (defaults of the config params that its process config reads as top-level params) and
-  `conf/process.config`, differentialabundance's `conf/modules.config`, sets the three top-level params that
-  differentialabundance's process config reads (`outdir`, `publish_dir_mode`, `shinyngs_deploy_to_shinyapps_io`), and
+  `conf/process.config`, differentialabundance's `conf/modules.config`, sets how published files are written, and
   sets the process environment and shell that the pipelines' `nextflow.config` files set.
 - `assets/` holds the test samplesheet, sample metadata and contrasts.
 
@@ -100,7 +99,7 @@ and TPM) and `out/differentialabundance/report`.
   process config reads (for example `umitools_bc_pattern` or `extra_star_align_args`) are not part of the record and
   are also set at the top level.
 - differentialabundance builds the paramset of the run from `params.diffab` and validates it against its own
-  `nextflow_schema.json`, so the params that schema requires (here `outdir`) are part of the record. It also refers
+  `nextflow_schema.json`. It also refers
   to `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
   The `rnaseq` profile of differentialabundance is a set of param values, which `params.json` gives as `diffab.*`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the

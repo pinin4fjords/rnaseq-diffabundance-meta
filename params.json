@@ -35,7 +35,6 @@
     "filtering_min_abundance": 10,
     "deseq2_vst_nsub": 5,
     "seed": 10,
-    "outdir": "out",
     "input": "assets/sample_metadata.csv",
     "contrasts": "assets/contrasts.yaml"
   }
