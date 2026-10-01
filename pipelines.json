@@ -1,0 +1,34 @@
+{
+  "name": "pinin4fjords/rnaseq-diffabundance-meta",
+  "homePage": "https://github.com/pinin4fjords/rnaseq-diffabundance-meta",
+  "repos": {
+    "https://github.com/nf-core/rnaseq": {
+      "pipelines": {
+        "nf-core": {
+          "rnaseq": {
+            "branch": "feat/composable-input",
+            "git_sha": "cd7194c14761224113172a8690ddd87284279a1e",
+            "installed_by": [
+              "pipelines"
+            ],
+            "path": "pipelines/nf-core/rnaseq"
+          }
+        }
+      }
+    },
+    "https://github.com/nf-core/differentialabundance": {
+      "pipelines": {
+        "nf-core": {
+          "differentialabundance": {
+            "branch": "feat/pipeline-composition",
+            "git_sha": "e2bb4e0f1a721ed2c193cbb6d1ef23d69a613446",
+            "installed_by": [
+              "pipelines"
+            ],
+            "path": "pipelines/nf-core/differentialabundance"
+          }
+        }
+      }
+    }
+  }
+}

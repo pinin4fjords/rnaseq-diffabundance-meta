@@ -14,7 +14,7 @@ samples -> NFCORE_RNASEQ -> merged counts / lengths / GTF -> DIFFERENTIALABUNDAN
 Experimental. It depends on unmerged work: the rnaseq changes in
 [nf-core/rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966) (on top of the output-records work in #1945),
 the differentialabundance change in [nf-core/differentialabundance#758](https://github.com/nf-core/differentialabundance/pull/758),
-and a patched nf-schema. `scripts/vendor.sh` pins the commits from those branches.
+and a patched nf-schema. `pipelines.json` records the branch and commit of each pipeline.
 
 ## Requirements
 
@@ -26,12 +26,17 @@ and a patched nf-schema. `scripts/vendor.sh` pins the commits from those branche
 ## Run
 
 ```bash
-scripts/vendor.sh              # copies the two pipelines to pipelines/nf-core/ and generates conf/generated/
+scripts/vendor.sh              # (re)copies the pipelines listed in pipelines.json and generates conf/generated/
 NEXTFLOW=/path/to/nextflow scripts/run.sh -stub-run   # wiring check
 NEXTFLOW=/path/to/nextflow scripts/run.sh             # small test run on nf-core test data
 ```
 
-`scripts/vendor.sh` takes `RNASEQ_SRC` and `DIFFAB_SRC` to vendor local checkouts instead of the pinned refs.
+The pipelines are committed under `pipelines/nf-core/`, so the project runs as cloned. `pipelines.json` has the same
+shape as an nf-core `modules.json`: the repository, branch and commit each pipeline was copied from. To move a pipeline,
+change its entry (or set `RNASEQ_REF` / `DIFFERENTIALABUNDANCE_REF` to a branch or commit) and rerun
+`scripts/vendor.sh`, which writes the resolved commit back. `RNASEQ_SRC` and `DIFFAB_SRC` vendor local checkouts
+instead, without touching `pipelines.json`. The copies leave out each pipeline's tests, CI files and docs (other than
+`docs/images/`).
 
 ## Layout
 
