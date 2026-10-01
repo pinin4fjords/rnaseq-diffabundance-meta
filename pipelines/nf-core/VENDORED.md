@@ -1,0 +1,2 @@
+- rnaseq: https://github.com/nf-core/rnaseq at cd7194c14
+- differentialabundance: https://github.com/nf-core/differentialabundance at e2bb4e0f

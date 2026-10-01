@@ -1,0 +1,166 @@
+//
+// Subworkflow with functionality that may be useful for any Nextflow pipeline
+//
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    SUBWORKFLOW DEFINITION
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+workflow UTILS_NEXTFLOW_PIPELINE {
+    take:
+    print_version        // boolean: print version
+    dump_parameters      // boolean: dump parameters
+    outdir               //    path: base directory used to publish pipeline results
+    check_conda_channels // boolean: check conda channels
+
+    main:
+
+    //
+    // Print workflow version and exit on --version
+    //
+    if (print_version) {
+        log.info("${workflow.manifest.name} ${getWorkflowVersion()}")
+        System.exit(0)
+    }
+
+    //
+    // Dump pipeline parameters to a JSON file
+    //
+    if (dump_parameters && outdir) {
+        dumpParametersToJSON(outdir)
+    }
+
+    //
+    // When running with Conda, warn if channels have not been set-up appropriately
+    //
+    if (check_conda_channels) {
+        checkCondaChannels()
+    }
+
+    emit:
+    dummy_emit = true
+}
+
+/*
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    FUNCTIONS
+~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+*/
+
+//
+// Generate version string
+//
+def getWorkflowVersion() {
+    def version_string = "" as String
+    if (workflow.manifest.version) {
+        def prefix_v = workflow.manifest.version[0] != 'v' ? 'v' : ''
+        version_string += "${prefix_v}${workflow.manifest.version}"
+    }
+
+    if (workflow.commitId) {
+        def git_shortsha = workflow.commitId.substring(0, 7)
+        version_string += "-g${git_shortsha}"
+    }
+
+    return version_string
+}
+
+//
+// Replace dataflow values (Channel and Value params) by the value they were created from, and drop
+// those without one. Nested maps, such as the params of an included pipeline, are handled the same way.
+//
+def withoutDataflowValues(value, cliValue, configValue) {
+    def className = value?.getClass()?.name ?: ''
+    if (className.startsWith('groovyx.gpars.dataflow.') || className.startsWith('nextflow.dataflow.')) {
+        def source = cliValue != null ? cliValue : configValue
+        return source != null && !(source?.getClass()?.name ?: '').startsWith('groovyx.gpars.dataflow.') ? source : null
+    }
+    if (value instanceof Map) {
+        def result = [:]
+        value.each { name, entry ->
+            def replaced = withoutDataflowValues(entry, cliValue instanceof Map ? cliValue[name] : null, configValue instanceof Map ? configValue[name] : null)
+            def entryClass = entry?.getClass()?.name ?: ''
+            def entryIsDataflow = entryClass.startsWith('groovyx.gpars.dataflow.') || entryClass.startsWith('nextflow.dataflow.')
+            if (replaced != null || !entryIsDataflow) {
+                result[name] = replaced
+            }
+        }
+        return result
+    }
+    return value
+}
+
+//
+// Dump pipeline parameters to a JSON file
+//
+def dumpParametersToJSON(outdir) {
+    def timestamp = new java.util.Date().format('yyyy-MM-dd_HH-mm-ss')
+    def filename  = "params_${timestamp}.json"
+    def temp_pf       = workflow.launchDir.resolve(".${filename}")
+    def jsonGenerator = new groovy.json.JsonGenerator.Options()
+        .excludeNulls()
+        .addConverter(Path) { Path path -> path.toUriString() }
+        .addConverter(Duration) { Duration duration -> duration.toMillis() }
+        .addConverter(MemoryUnit) { MemoryUnit memory -> memory.toBytes() }
+        .addConverter(nextflow.script.types.VersionNumber) { nextflow.script.types.VersionNumber version -> version.toString() }
+        .build()
+    // Channel and Value params hold live dataflow objects that cannot be serialised, so the value
+    // they were created from (given on the command line, else set in the config) is dumped in their place
+    def dumpableParams = withoutDataflowValues(params, nextflow.Global.session.cliParams, nextflow.Global.session.config?.params)
+    def jsonStr   = jsonGenerator.toJson(dumpableParams)
+    temp_pf.text  = groovy.json.JsonOutput.prettyPrint(jsonStr)
+    if (outdir instanceof Path) {
+        temp_pf.copyTo(outdir.resolve("pipeline_info/${filename}"))
+    } else if (outdir instanceof String) {
+        temp_pf.copyTo("${outdir}/pipeline_info/params_${timestamp}.json")
+    } else {
+        log.warn("Could not determine type of outdir, parameters JSON file will not be copied to output directory!")
+    }
+    temp_pf.delete()
+}
+
+//
+// When running with -profile conda, warn if channels have not been set-up appropriately
+//
+def checkCondaChannels() {
+    def parser = new org.yaml.snakeyaml.Yaml()
+    def channels = []
+    try {
+        def config = parser.load("conda config --show channels".execute().text)
+        channels = config.channels
+    }
+    catch (NullPointerException e) {
+        log.debug(e)
+        log.warn("Could not verify conda channel configuration.")
+        return null
+    }
+    catch (IOException e) {
+        log.debug(e)
+        log.warn("Could not verify conda channel configuration.")
+        return null
+    }
+
+    // Check that all channels are present
+    // This channel list is ordered by required channel priority.
+    def required_channels_in_order = ['conda-forge', 'bioconda']
+    def channels_missing = ((required_channels_in_order as Set) - (channels as Set)) as Boolean
+
+    // Check that they are in the right order
+    def channel_priority_violation = required_channels_in_order != channels.findAll { ch -> ch in required_channels_in_order }
+
+    if (channels_missing | channel_priority_violation) {
+        log.warn """\
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+            There is a problem with your Conda configuration!
+            You will need to set-up the conda-forge and bioconda channels correctly.
+            Please refer to https://bioconda.github.io/
+            The observed channel order is
+            ${channels}
+            but the following channel order is required:
+            ${required_channels_in_order}
+        ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~"
+        """.stripIndent(true)
+    }
+}

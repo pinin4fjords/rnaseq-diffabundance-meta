@@ -12,7 +12,7 @@ def diffabParamset(matrix, lengths, gtf, input, contrasts) {
     // The meta-pipeline's own params are not differentialabundance params (and hold Path objects, which
     // cannot be serialised during validation)
     def defaults = getDefaultConfigurations().collect { paramset ->
-        paramset.findAll { key, _value -> !(key in ['rnaseq', 'samples', 'sample_metadata', 'quantification']) }
+        paramset.findAll { key, _value -> !(key in ['rnaseq', 'samples', 'sample_metadata']) }
     }
     def configured = defaults.collect { paramset ->
         // Paths are given as strings, as they are on the command line: the paramset is serialised to

@@ -59,5 +59,6 @@ and TPM) and `out/differentialabundance/report`.
   `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
   current work directory.
-- `--quantification pseudo|aligned` selects which merged matrices rnaseq hands on. Only `pseudo` has been run; the
-  `aligned` path (STAR and Salmon) has not been exercised.
+- rnaseq returns `gene_quant`, the merged gene matrices of its primary quantifier (alignment-based unless
+  `rnaseq.skip_alignment` is set), and `gtf`, the reference annotation. Only the pseudo-alignment path has been run;
+  the aligned path (STAR and Salmon) has not been exercised.

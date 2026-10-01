@@ -1,0 +1,52 @@
+nextflow.enable.types = true
+
+include { GtfInput } from '../../types'
+
+record CustomGtffilterResult {
+    id:   String
+    meta: Map
+    gtf:  Path
+}
+
+process CUSTOM_GTFFILTER {
+    tag "${sample.meta.id}"
+    label 'process_single'
+
+    conda "${moduleDir}/environment.yml"
+    container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container
+?         'https://community-cr-prod.seqera.io/docker/registry/v2/blobs/sha256/18/1841daa69f98a0b0ffcb8f545070c8350a75febb167202136eab0990131d31c0/data'
+:         'community.wave.seqera.io/library/python:3.14.5--dc8358b3c5eeb927' }"
+
+    input:
+    sample: GtfInput
+    fasta: Path?
+
+    output:
+    record(id: sample.id, meta: sample.meta, gtf: file("${prefix}.${suffix}")) as CustomGtffilterResult
+
+    topic:
+    file('versions.yml') >> 'versions'
+
+    script:
+    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    suffix = "gtf" + (sample.gtf.extension == 'gz' ? '.gz' : '')
+    args   = task.ext.args ?: ''
+
+    """
+    echo $args
+    """
+
+    template 'gtffilter.py'
+
+    stub:
+    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    suffix = "gtf" + (sample.gtf.extension == 'gz' ? '.gz' : '')
+    """
+    touch ${prefix}.${suffix}
+
+    cat <<-END_VERSIONS > versions.yml
+    "${task.process}":
+        python: \$(python --version 2>&1 | cut -d ' ' -f 2)
+    END_VERSIONS
+    """
+}
