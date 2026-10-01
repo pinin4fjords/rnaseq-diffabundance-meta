@@ -9,6 +9,13 @@ differentialabundance starts as soon as rnaseq's merged gene matrices exist.
 samples -> NFCORE_RNASEQ -> merged counts / lengths / GTF -> DIFFERENTIALABUNDANCE -> report
 ```
 
+## Status
+
+Experimental. It depends on unmerged work: the rnaseq changes in
+[nf-core/rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966) (on top of the output-records work in #1945),
+the differentialabundance change in [nf-core/differentialabundance#758](https://github.com/nf-core/differentialabundance/pull/758),
+and a patched nf-schema. `scripts/vendor.sh` pins the commits from those branches.
+
 ## Requirements
 
 - A Nextflow build that includes #7213 (not in a release yet), as `$NEXTFLOW`
@@ -52,4 +59,5 @@ and TPM) and `out/differentialabundance/report`.
   `assets/schema_*.json` relative to the project root; `scripts/vendor.sh` copies those files into `assets/`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
   current work directory.
-- `--quantification pseudo|aligned` selects which merged matrices rnaseq hands on.
+- `--quantification pseudo|aligned` selects which merged matrices rnaseq hands on. Only `pseudo` has been run; the
+  `aligned` path (STAR and Salmon) has not been exercised.
