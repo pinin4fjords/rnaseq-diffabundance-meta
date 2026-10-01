@@ -1,0 +1,6 @@
+pipelines/
+conf/generated/
+work/
+out/
+.nextflow*
+.nf-test*

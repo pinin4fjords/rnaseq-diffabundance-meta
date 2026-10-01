@@ -1,0 +1,3 @@
+contrasts:
+  - id: rap1_uninduced_vs_wildtype
+    comparison: ["condition", "wildtype", "rap1_uninduced"]
