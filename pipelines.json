@@ -7,7 +7,7 @@
         "nf-core": {
           "rnaseq": {
             "branch": "feat/composable-input",
-            "git_sha": "06c9f73e52f2e89d7b921c6b61d4f55caeca1070",
+            "git_sha": "02a0134b9b1147b1e2ef88c883fbc5406cfb1a86",
             "installed_by": [
               "pipelines"
             ],
@@ -21,7 +21,7 @@
         "nf-core": {
           "differentialabundance": {
             "branch": "feat/pipeline-composition",
-            "git_sha": "65c6a1387fe89818afc9493414cb2b7172be8504",
+            "git_sha": "32daba797fe7ae8e77be2da0e495ed7c254dc537",
             "installed_by": [
               "pipelines"
             ],
