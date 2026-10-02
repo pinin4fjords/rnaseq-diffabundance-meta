@@ -7,7 +7,7 @@
         "nf-core": {
           "rnaseq": {
             "branch": "feat/composable-input",
-            "git_sha": "4df9ee96e13670943a2fab8a4dd3626747555fc3",
+            "git_sha": "06c9f73e52f2e89d7b921c6b61d4f55caeca1070",
             "installed_by": [
               "pipelines"
             ],
