@@ -11,7 +11,7 @@ samples -> NFCORE_RNASEQ -> merged counts / lengths / GTF -> DIFFERENTIALABUNDAN
 
 ## Design choices
 
-Goal: a meta-pipeline that is just `main.nf`, a config shell and a params file on top of the vendored pipelines, with
+Goal: a meta-pipeline that is just `main.nf`, a config shell and a test profile on top of the vendored pipelines, with
 nothing lost. That needs the component pipelines to follow the
 [pipeline composition ADR](https://github.com/nextflow-io/nextflow/blob/master/adr/20260608-pipeline-composition.md), so the
 component branches ([rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966),
@@ -72,7 +72,7 @@ instead, without touching `pipelines.json`. The copies leave out each pipeline's
 
 No code change is needed, and there are two routes.
 
-**A pipeline option** adds to the arguments the pipeline builds for a tool. Set it in `params.json` (or as
+**A pipeline option** adds to the arguments the pipeline builds for a tool. Set it in a params file (`-params-file`, or as
 `--rnaseq.extra_trimgalore_args '--length 35'` on the command line):
 
 ```json
@@ -130,12 +130,19 @@ TrimGalore is the one exception: its fixed options come from `ext.args` and the 
   `conf/params.config` (its config params only) and `conf/modules.config`, differentialabundance's
   `conf/modules.config`, sets how published files are written, and sets the process environment and shell that the
   pipelines' `nextflow.config` files set.
-- `assets/` holds the test samplesheet, sample metadata and contrasts.
+- `conf/test.config` is the `test` profile: nf-core/rnaseq's test profile under `rnaseq.*` (its samplesheet,
+  references and process settings) and a DESeq2 analysis of the resulting counts under `diffab.*`.
+- `nextflow_schema.json` is the parameter schema, from which Seqera Platform builds the launch form. It has one
+  section per pipeline, `rnaseq` and `diffab`, holding that pipeline's options, and is written by
+  `scripts/combine_schemas.py` from the vendored pipelines' schemas (`scripts/vendor.sh` reruns it). It keeps the
+  options that each pipeline's `params` block declares and leaves out those that `main.nf` sets (differentialabundance's
+  `matrix`, `feature_length_matrix` and `gtf`).
+- `assets/` holds the test sample metadata and contrasts.
 
 ## Result
 
-A real run on the nf-core test data (pseudo-alignment only, `scripts/run.sh` with the default `params.json`)
-takes about two minutes and publishes `out/rnaseq/multiqc`, `out/rnaseq/quant` (merged gene counts, lengths
+A real run of the `test` profile (`scripts/run.sh`, STAR and Salmon alignment, Salmon pseudo-alignment and QC on
+the nf-core test data) runs 246 tasks in about five minutes and publishes `out/rnaseq/multiqc`, `out/rnaseq/quant` (merged gene counts, lengths
 and TPM) and `out/differentialabundance/report`.
 
 ## Notes
@@ -143,10 +150,9 @@ and TPM) and `out/differentialabundance/report`.
 - Each pipeline's options are set under its own name: `--rnaseq.input` is the rnaseq samplesheet (Nextflow loads it into one record per row, as for rnaseq's own `--input`), `--diffab.input` the sample metadata and `--diffab.contrasts` the contrasts, and every other option of a pipeline is available the same way, for example `--rnaseq.extra_star_align_args` or `--diffab.deseq2_alpha`.
 - differentialabundance builds the paramset of the run from `params.diffab` and validates it against its own
   `nextflow_schema.json`. 
-  The `rnaseq` profile of differentialabundance is a set of param values, which `params.json` gives as `diffab.*`.
+  The `rnaseq` profile of differentialabundance is a set of param values, which the `test` profile gives as `diffab.*`.
 - Use a fresh work directory (no `-resume` from another one): rnaseq only publishes files under the
   current work directory.
 - rnaseq returns `gene_quant`, the merged gene matrices of its primary quantifier (alignment-based unless
-  `rnaseq.skip_alignment` is set), and `gtf`, the reference annotation. The default `params.json` runs the
-  pseudo-alignment path; the aligned path (STAR and Salmon, `rnaseq.skip_alignment` false, QC on) has also been run
-  on the test data.
+  `rnaseq.skip_alignment` is set), and `gtf`, the reference annotation. The `test` profile runs the
+  aligned path; the pseudo-alignment path (`rnaseq.skip_alignment` true) has also been run on the test data.

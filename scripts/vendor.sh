@@ -57,4 +57,6 @@ vendor() { # org name src-override
 vendor nf-core rnaseq "${RNASEQ_SRC:-}"
 vendor nf-core differentialabundance "${DIFFAB_SRC:-}"
 
+scripts/combine_schemas.py
+
 echo "vendored rnaseq and differentialabundance"

@@ -4,4 +4,4 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 export NXF_PLUGINS_TEST_REPOSITORY=https://github.com/pinin4fjords/nf-schema/releases/download/2.7.2-channel.5/nf-schema-2.7.2-channel.5-meta.json
-exec "${NEXTFLOW:-nextflow}" run main.nf -params-file params.json -output-dir out "$@"
+exec "${NEXTFLOW:-nextflow}" run main.nf -profile test -output-dir out "$@"
