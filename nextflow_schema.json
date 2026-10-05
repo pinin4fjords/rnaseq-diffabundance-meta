@@ -314,7 +314,7 @@
                             "format": "file-path",
                             "exists": true,
                             "mimetype": "text/plain",
-                            "default": "${projectDir}/assets/rrna-db-defaults.txt",
+                            "default": "${projectDir}/pipelines/nf-core/rnaseq/assets/rrna-db-defaults.txt",
                             "fa_icon": "fas fa-database",
                             "description": "Text file containing paths to fasta files (one per line) that will be used to create the database for SortMeRNA.",
                             "help_text": "By default, [rRNA databases](https://github.com/biocore/sortmerna/tree/master/data/rRNA_databases) from the SortMeRNA GitHub repository are used. See the example in `assets/rrna-default-dbs.txt`. Note: commercial/non-academic entities require [SILVA licensing](https://www.arb-silva.de/silva-license-information) for these databases."
@@ -1986,7 +1986,7 @@
                         },
                         "report_file": {
                             "type": "string",
-                            "default": "${projectDir}/assets/differentialabundance_report.qmd",
+                            "default": "${projectDir}/pipelines/nf-core/differentialabundance/assets/differentialabundance_report.qmd",
                             "description": "Qmd/Rmd/ipynb report template(s) from which to create the pipeline report. Supply a single path or a comma-separated list of paths to render multiple reports per paramset.",
                             "help_text": "The pipeline will always generate a default report which gives a good overview of the analysis results. Should this default report not suit your needs, you can provide the path to a custom report instead. To render multiple reports for the same paramset, pass a comma-separated list of paths (e.g. `path/to/a.qmd,path/to/b.qmd`); each entry must end with `.Rmd`, `.qmd` or `.ipynb` and contain no whitespace within a path.",
                             "format": "file-path",
@@ -2002,7 +2002,7 @@
                         },
                         "logo_file": {
                             "type": "string",
-                            "default": "${projectDir}/docs/images/nf-core-differentialabundance_logo_light.png",
+                            "default": "${projectDir}/pipelines/nf-core/differentialabundance/docs/images/nf-core-differentialabundance_logo_light.png",
                             "description": "A logo to display in the report instead of the generic pipeline logo.",
                             "help_text": "A logo to display in the report instead of the generic pipeline logo. It can accessed via the id 'logo' in the css_file.",
                             "fa_icon": "far fa-font-awesome-logo-full",
@@ -2010,14 +2010,14 @@
                         },
                         "css_file": {
                             "type": "string",
-                            "default": "${projectDir}/assets/nf-core_style.css",
+                            "default": "${projectDir}/pipelines/nf-core/differentialabundance/assets/nf-core_style.css",
                             "description": "CSS to use to style the output, in lieu of the default nf-core styling",
                             "fa_icon": "far fa-file-code",
                             "hidden": true
                         },
                         "citations_file": {
                             "type": "string",
-                            "default": "${projectDir}/CITATIONS.md",
+                            "default": "${projectDir}/pipelines/nf-core/differentialabundance/CITATIONS.md",
                             "description": "A markdown file containing citations to include in the final report",
                             "fa_icon": "fas fa-ad"
                         },

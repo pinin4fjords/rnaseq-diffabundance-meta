@@ -10,6 +10,8 @@ A schema parameter is kept only if the pipeline's typed `params` block declares 
 config params, which are not part of the pipeline record. Options that main.nf sets itself are left out.
 A parameter stays required only if the params block gives it no default: Platform reads defaults from
 nextflow.config, never from main.nf, so the form would otherwise ask for values the pipeline already has.
+Defaults under `${projectDir}` point into the pipeline's own directory: the launch form sends schema
+defaults as param values, and `projectDir` is the meta-pipeline's root when the pipeline is included.
 """
 import json
 import re
@@ -43,6 +45,9 @@ def pipeline_section(key, name, title, wired):
                 continue
             if 'schema' in definition:
                 definition = {**definition, 'schema': f"pipelines/nf-core/{name}/{definition['schema']}"}
+            default = definition.get('default')
+            if isinstance(default, str) and default.startswith('${projectDir}/'):
+                definition = {**definition, 'default': default.replace('${projectDir}/', f'${{projectDir}}/pipelines/nf-core/{name}/', 1)}
             properties[param] = definition
         required += [p for p in group.get('required', []) if p in properties and not declared[p]]
 
