@@ -46,8 +46,8 @@ Experimental. It depends on unmerged work: the rnaseq changes in
 [nf-core/rnaseq#1966](https://github.com/nf-core/rnaseq/pull/1966) (on top of the output-records work in #1945),
 the differentialabundance change in [nf-core/differentialabundance#758](https://github.com/nf-core/differentialabundance/pull/758),
 and a patched nf-schema. `pipelines.json` records the branch and commit of each pipeline.
-[docs/composition-path.md](docs/composition-path.md) describes each step from typed pipelines to
-composition, and the status of each step.
+[docs/composition-path.md](docs/composition-path.md) lists the changes a pipeline needs before another
+pipeline can include it, in dependency order, with rnaseq and differentialabundance as examples.
 
 ## Requirements
 
