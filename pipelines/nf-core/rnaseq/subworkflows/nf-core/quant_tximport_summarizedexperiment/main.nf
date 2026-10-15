@@ -40,7 +40,7 @@ workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     //
     ch_tx2gene_quants = ch_quants
         .collect()
-        .flatMap { rs -> rs.isEmpty() ? [] : [ record(meta: record(), quants: [ rs.collect { r -> r.quants[0] }.toSorted { f -> f.name }.first() ]) ] }
+        .flatMap { rs -> rs.isEmpty() ? [] : [ record(meta: record(id: null), quants: [ rs.collect { r -> r.quants[0] }.toSorted { f -> f.name }.first() ]) ] }
 
     ch_tx2gene = CUSTOM_TX2GENE(
         ch_tx2gene_quants

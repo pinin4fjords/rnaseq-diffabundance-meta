@@ -399,8 +399,8 @@ workflow {
     ch_pub_report = abundance.report_html.map { meta, file -> record(name: 'report_html', meta: meta, files: [file].flatten()) }
         .mix(abundance.report_bundle.map          { meta, file -> record(name: 'report_bundle', meta: meta, files: [file].flatten()) })
 
-    ch_pub_versions = abundance.nfcore_versions.map { file -> record(name: 'versions', meta: record(), files: [file].flatten()) }
-        .mix(abundance.collated_versions.map      { file -> record(name: 'collated_versions', meta: record(), files: [file].flatten()) })
+    ch_pub_versions = abundance.nfcore_versions.map { file -> record(name: 'versions', meta: record(id: null), files: [file].flatten()) }
+        .mix(abundance.collated_versions.map      { file -> record(name: 'collated_versions', meta: record(id: null), files: [file].flatten()) })
 
     // The files of propd and grea go in folders named after the run, without the paramset
     ch_pub_propd = abundance.propd_results.map  { meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
