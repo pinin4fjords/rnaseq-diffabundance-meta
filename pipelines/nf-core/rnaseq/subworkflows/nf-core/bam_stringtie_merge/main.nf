@@ -12,8 +12,10 @@ workflow BAM_STRINGTIE_MERGE {
     main:
 
     // (meta, transcript_gtf, abundance, coverage_gtf, ballgown)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_assemblies = STRINGTIE_STRINGTIE(
         ch_bams
+            .map { t -> tuple(t) }
             .combine(mode)
             .combine(chrgtf)
     )

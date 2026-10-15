@@ -259,9 +259,11 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     // (meta, lint)
     def ch_lint_bbsplit: Channel<Tuple> = channel.empty()
     if (!skip_bbsplit) {
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
         ch_bbsplit = BBMAP_BBSPLIT(
             ch_reads_current
                 .filter { _meta, reads -> reads != null }
+                .map { t -> tuple(t) }
                 .combine(ch_bbsplit_index)
                 .map { meta, reads, index -> tuple(meta, reads, index, null, [] as List<String>, [] as List<Path>, false) }
         ).map { meta, _index, reads, other_genome_reads, stats, _log ->

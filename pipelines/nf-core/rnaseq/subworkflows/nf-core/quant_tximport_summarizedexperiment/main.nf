@@ -78,8 +78,10 @@ workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     }
 
     // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_tximport = TXIMETA_TXIMPORT(
         ch_tximport_input
+            .map { t -> tuple(t) }
             .combine(ch_tx2gene_file)
             .map { meta, quants, tx2gene -> tuple(meta, quants, tx2gene, quant_type) }
     )
@@ -132,7 +134,7 @@ workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene)
     ch_results = ch_tximport
         .join(ch_se_gene, by: 0)
-        .join(ch_se_transcript, by: 0)
+        .join(ch_se_transcript, by: 0).map { t -> tuple(t) }
         .combine(ch_tx2gene_file)
 
     emit:

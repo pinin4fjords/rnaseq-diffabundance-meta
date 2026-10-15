@@ -18,13 +18,14 @@ workflow BEDGRAPH_BEDCLIP_BEDGRAPHTOBIGWIG {
     // Clip bedGraph file
     //
     // (meta, bedgraph)
-    ch_clipped = UCSC_BEDCLIP(ch_bedgraph.combine(sizes))
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+    ch_clipped = UCSC_BEDCLIP(ch_bedgraph.map { t -> tuple(t) }.combine(sizes))
 
     //
     // Convert bedGraph to bigWig
     //
     // (meta, bigwig)
-    ch_bigwig = UCSC_BEDGRAPHTOBIGWIG(ch_clipped.combine(sizes))
+    ch_bigwig = UCSC_BEDGRAPHTOBIGWIG(ch_clipped.map { t -> tuple(t) }.combine(sizes))
 
     // (meta, bedgraph, bigwig)
     ch_results = ch_clipped.join(ch_bigwig, by: 0)

@@ -66,8 +66,10 @@ workflow FASTQ_REMOVE_RRNA {
         }
 
         // (meta, reads, log, index)
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
         ch_sortmerna = SORTMERNA(
             ch_reads
+                .map { t -> tuple(t) }
                 .combine(ch_sortmerna_fastas)
                 .combine(ch_sortmerna_idx)
         )
@@ -144,6 +146,7 @@ workflow FASTQ_REMOVE_RRNA {
         ch_bowtie2_se = BOWTIE2_ALIGN(
             ch_reads
                 .filter { meta, _reads -> meta.single_end }
+                .map { t -> tuple(t) }
                 .combine(ch_bowtie2_idx)
                 .map { meta, reads, index -> tuple(meta, reads, null, index, null, true, false) }
         )
@@ -155,6 +158,7 @@ workflow FASTQ_REMOVE_RRNA {
         ch_bowtie2_pe = BOWTIE2_ALIGN_PE(
             ch_reads
                 .filter { meta, _reads -> !meta.single_end }
+                .map { t -> tuple(t) }
                 .combine(ch_bowtie2_idx)
                 .map { meta, reads, index -> tuple(meta, reads, null, index, null, false, false) }
         )

@@ -17,8 +17,10 @@ workflow BAM_SORT_STATS_SAMTOOLS {
 
     main:
     // (meta, bam, cram, sam, bai, csi, crai)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_sorted = SAMTOOLS_SORT(
         ch_bam
+            .map { t -> tuple(t) }
             .combine(ch_fasta)
             .combine(ch_fai)
             .combine(channel.value(''))

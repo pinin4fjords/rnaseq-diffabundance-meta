@@ -18,8 +18,10 @@ workflow BAM_MARKDUPLICATES_PICARD {
 
     main:
     // (meta, bam, bai, cram, metrics)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_markdup = PICARD_MARKDUPLICATES(
         ch_bam
+            .map { t -> tuple(t) }
             .combine(ch_fasta)
             .combine(ch_fai)
     )

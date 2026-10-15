@@ -15,7 +15,8 @@ workflow BAM_STATS_SAMTOOLS {
     ch_fai: Value<Path?>
 
     main:
-    ch_stats = SAMTOOLS_STATS(ch_bam_bai.combine(ch_fasta).combine(ch_fai))
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+    ch_stats = SAMTOOLS_STATS(ch_bam_bai.map { t -> tuple(t) }.combine(ch_fasta).combine(ch_fai))
     ch_flagstat = SAMTOOLS_FLAGSTAT(ch_bam_bai)
     ch_idxstats = SAMTOOLS_IDXSTATS(ch_bam_bai)
 

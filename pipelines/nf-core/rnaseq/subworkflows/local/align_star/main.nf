@@ -46,16 +46,18 @@ workflow ALIGN_STAR {
     //
     def ch_star_out
     if (use_sentieon_star) {
-        ch_star_out = SENTIEON_STAR_ALIGN(ch_samples.combine(index).combine(gtf).combine(channel.value(star_ignore_sjdbgtf)))
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+        ch_star_out = SENTIEON_STAR_ALIGN(ch_samples.map { t -> tuple(t) }.combine(index).combine(gtf).combine(channel.value(star_ignore_sjdbgtf)))
     } else if (use_parabricks_star) {
         ch_star_out = PARABRICKS_RNA_FQ2BAM(
             ch_samples
+                .map { t -> tuple(t) }
                 .combine(fasta)
                 .combine(index)
                 .map { meta, reads, args, fasta_file, index_dir -> tuple(meta, reads, fasta_file, index_dir, true, !skip_markduplicates, args) }
         )
     } else {
-        ch_star_out = STAR_ALIGN(ch_samples.combine(index).combine(gtf).combine(channel.value(star_ignore_sjdbgtf)))
+        ch_star_out = STAR_ALIGN(ch_samples.map { t -> tuple(t) }.combine(index).combine(gtf).combine(channel.value(star_ignore_sjdbgtf)))
     }
 
     // A run that produced no BAM drops out of the downstream channels.

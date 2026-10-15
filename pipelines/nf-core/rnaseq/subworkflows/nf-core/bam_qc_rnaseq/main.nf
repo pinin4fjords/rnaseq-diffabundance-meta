@@ -100,7 +100,8 @@ workflow BAM_QC_RNASEQ {
     // (meta, dupradar(scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc, session_info))
     def ch_dupradar: Channel<Tuple> = ch_skipped
     if ('dupradar' in tools) {
-        ch_dupradar = DUPRADAR(ch_bam.combine(ch_gtf))
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+        ch_dupradar = DUPRADAR(ch_bam.map { t -> tuple(t) }.combine(ch_gtf))
             .map { meta, scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc, session_info ->
                 tuple(meta, tuple(scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc, session_info))
             }

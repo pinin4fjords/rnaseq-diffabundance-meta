@@ -42,8 +42,10 @@ workflow ALIGN_BOWTIE2 {
     // Map reads with Bowtie2. No fasta is needed for BAM output, and the BAM is sorted with samtools for consistency.
     //
     // (meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     def ch_bowtie2 = BOWTIE2_ALIGN(
         ch_samples
+            .map { t -> tuple(t) }
             .combine(index)
             .map { meta, reads, args, index_dir -> tuple(meta, reads, args, index_dir, null, save_unaligned, false) }
     ).filter { _meta, _sam, raw_bams, _cram, _csi, _crai, _unmapped, _bowtie2_log -> !raw_bams.isEmpty() }

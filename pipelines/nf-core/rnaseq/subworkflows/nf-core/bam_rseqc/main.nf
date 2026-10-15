@@ -21,7 +21,8 @@ workflow BAM_RSEQC {
 
     main:
     // (meta, bam, bai, bed)
-    ch_bam_bai_bed = ch_bam_bai.combine(bed)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+    ch_bam_bai_bed = ch_bam_bai.map { t -> tuple(t) }.combine(bed)
 
     // Each tool contributes one (meta, result) channel. A skipped tool contributes a null result
     // for every sample, so the final inner join keeps each sample and leaves that slot null.

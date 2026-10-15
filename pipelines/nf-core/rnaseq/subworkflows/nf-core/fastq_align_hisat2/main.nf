@@ -18,8 +18,10 @@ workflow FASTQ_ALIGN_HISAT2 {
     // Map reads with HISAT2
     //
     // (meta, raw_bams, unmapped, hisat2_summary)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_hisat2 = HISAT2_ALIGN(
         ch_samples
+            .map { t -> tuple(t) }
             .combine(index)
             .combine(splicesites)
             .combine(channel.value(save_unaligned))

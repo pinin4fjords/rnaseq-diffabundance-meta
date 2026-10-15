@@ -309,8 +309,8 @@ workflow {
 
     def ch_paramsets = init.paramsets
     if (!params.paramsheet) {
-        ch_paramsets = ch_files.flatMap { input, contrasts, matrix, feature_length_matrix, gtf ->
-            [ buildParamset(params, [input: input, contrasts: contrasts, matrix: matrix, feature_length_matrix: feature_length_matrix, gtf: gtf]) ]
+        ch_paramsets = ch_files.flatMap { files ->
+            [ buildParamset(params, [input: files[0], contrasts: files[1], matrix: files[2], feature_length_matrix: files[3], gtf: files[4]]) ]
         }
     }
 

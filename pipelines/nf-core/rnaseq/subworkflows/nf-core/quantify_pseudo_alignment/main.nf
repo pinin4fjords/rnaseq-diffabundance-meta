@@ -76,8 +76,10 @@ workflow QUANTIFY_PSEUDO_ALIGNMENT {
                 .combine(transcript_fasta)
         )
     } else {
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
         ch_kallisto = KALLISTO_QUANT(
             ch_samples
+                .map { t -> tuple(t) }
                 .combine(index)
                 .combine(gtf)
                 .map { meta, reads, index_dir, gtf_file ->

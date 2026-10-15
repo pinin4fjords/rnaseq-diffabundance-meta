@@ -29,9 +29,10 @@ workflow QUANTIFY_RSEM {
     // (meta, counts_gene, counts_transcript, stat, log, bam_star, bam_genome, bam_transcript)
     def ch_rsem: Channel<Tuple>
     if (use_sentieon_star) {
-        ch_rsem = SENTIEON_RSEMCALCULATEEXPRESSION(ch_samples.combine(index))
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+        ch_rsem = SENTIEON_RSEMCALCULATEEXPRESSION(ch_samples.map { t -> tuple(t) }.combine(index))
     } else {
-        ch_rsem = RSEM_CALCULATEEXPRESSION(ch_samples.combine(index))
+        ch_rsem = RSEM_CALCULATEEXPRESSION(ch_samples.map { t -> tuple(t) }.combine(index))
     }
 
     //
