@@ -10,8 +10,8 @@ process TXIMETA_TXIMPORT {
         'community.wave.seqera.io/library/bioconductor-tximeta_jq:78bccd386c46a07c' }"
 
     input:
-    record(
-        meta:       Record,
+    tuple(
+        meta:       Map,
         quants:     List<Path>,
         tx2gene:    Path,
         quant_type: String
@@ -21,17 +21,18 @@ process TXIMETA_TXIMPORT {
     stageAs quants, 'quants/*'
 
     output:
-    record(
-        meta:                      meta,
-        tpm_gene:                  file("*gene_tpm.tsv"),
-        counts_gene:               file("*gene_counts.tsv"),
-        lengths_gene:              file("*gene_lengths.tsv"),
-        counts_gene_length_scaled: file("*gene_counts_length_scaled.tsv"),
-        counts_gene_scaled:        file("*gene_counts_scaled.tsv"),
-        tpm_transcript:            file("*transcript_tpm.tsv"),
-        counts_transcript:         file("*transcript_counts.tsv"),
-        lengths_transcript:        file("*transcript_lengths.tsv"),
-        tx2gene_augmented:         file("*tx2gene_augmented.tsv")
+    // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented)
+    tuple(
+        meta,
+        file("*gene_tpm.tsv"),
+        file("*gene_counts.tsv"),
+        file("*gene_lengths.tsv"),
+        file("*gene_counts_length_scaled.tsv"),
+        file("*gene_counts_scaled.tsv"),
+        file("*transcript_tpm.tsv"),
+        file("*transcript_counts.tsv"),
+        file("*transcript_lengths.tsv"),
+        file("*tx2gene_augmented.tsv")
     )
 
     topic:

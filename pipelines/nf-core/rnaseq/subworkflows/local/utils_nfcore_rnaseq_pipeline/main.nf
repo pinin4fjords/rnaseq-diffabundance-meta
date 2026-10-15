@@ -116,9 +116,9 @@ workflow PIPELINE_COMPLETION {
     plaintext_email // boolean: Send plain-text email instead of HTML
     monochrome_logs // boolean: Disable ANSI colour codes in log output
     multiqc_report  //  string: Path to MultiQC report
-    trim_status        // channel: record(meta, pass) for trimming
-    map_status         // channel: record(meta, pass) for mapping
-    strand_status      // channel: record(meta, pass) for the strandedness check
+    trim_status        // channel: (meta, pass) for trimming
+    map_status         // channel: (meta, pass) for mapping
+    strand_status      // channel: (meta, pass) for the strandedness check
     params             //  record: the pipeline's params, passed in because an including pipeline has its own
 
     main:
@@ -130,13 +130,13 @@ workflow PIPELINE_COMPLETION {
     def multiqc_reports = multiqc_report.toList()
 
     trim_status
-        .map{ r -> pass_trimmed_reads[r.meta.id] = r.pass }
+        .map{ meta, pass -> pass_trimmed_reads[meta.id] = pass }
 
     map_status
-        .map{ r -> pass_mapped_reads[r.meta.id] = r.pass }
+        .map{ meta, pass -> pass_mapped_reads[meta.id] = pass }
 
     strand_status
-        .map{ r -> pass_strand_check[r.meta.id] = r.pass }
+        .map{ meta, pass -> pass_strand_check[meta.id] = pass }
 
     //
     // Completion email and summary
@@ -215,22 +215,22 @@ def checkSamplesAfterGrouping(input) {
         def transcriptome_bam = transcriptome_bams?.find { bam -> bam != null }
 
         // Add BAM flags and original paths to meta
-        def meta_with_bams = metas[0] + record(
+        def meta_with_bams = metas[0] + [
             has_genome_bam: genome_bam ? true : false,
             has_transcriptome_bam: transcriptome_bam ? true : false,
             original_genome_bam: genome_bam ?: null,
             original_transcriptome_bam: transcriptome_bam ?: null
-        )
+        ]
 
         return [ meta_with_bams, fastqs, genome_bam, transcriptome_bam ]
     } else {
         // Add null BAM fields to meta for consistency
-        def meta_no_bams = metas[0] + record(
+        def meta_no_bams = metas[0] + [
             has_genome_bam: false,
             has_transcriptome_bam: false,
             original_genome_bam: null,
             original_transcriptome_bam: null
-        )
+        ]
         return [ meta_no_bams, fastqs ]
     }
 }
@@ -705,7 +705,7 @@ def getGenomeAttribute(attribute) {
 
 //
 // Reference and index params accept pre-built files that reach the genome
-// records untouched. Only files written by a task may be routed through the
+// tuples untouched. Only files written by a task may be routed through the
 // output block, so anything outside the work directory is dropped to null.
 // Workaround for https://github.com/nextflow-io/nextflow/issues/7667 (routing a
 // non-task file with `>>` in a dynamic path closure crashes); remove once fixed.
@@ -858,14 +858,14 @@ def getInferexperimentStrandedness(inferexperiment_file, stranded_threshold = 0.
 
 //
 // Compare a sample's declared / Salmon-inferred strandedness against its
-// RSeQC infer_experiment result. Returns a per-sample record
+// RSeQC infer_experiment result. Returns a per-sample tuple
 // (meta, provided, status, salmon, rseqc) where
 //   - provided = 'auto' when Salmon inferred the strand, else meta.strandedness
 //   - status   = 'pass' / 'fail' from comparing the two methods
 //   - salmon   = Salmon's calculateStrandedness map (or null if no auto-inference)
 //   - rseqc    = RSeQC's getInferexperimentStrandedness map
 // Both the summary table and the composition bargraph sections of the
-// MultiQC report are derived from this record.
+// MultiQC report are derived from this tuple.
 //
 def classifyStrand(meta, strand_log, stranded_threshold, unstranded_threshold) {
     def rseqc = getInferexperimentStrandedness(strand_log, stranded_threshold, unstranded_threshold)
@@ -885,7 +885,7 @@ def classifyStrand(meta, strand_log, stranded_threshold, unstranded_threshold) {
             status = 'pass'
         }
     }
-    return record(meta: meta, provided: provided, status: status, salmon: salmon, rseqc: rseqc)
+    return tuple(meta, provided, status, salmon, rseqc)
 }
 
 //

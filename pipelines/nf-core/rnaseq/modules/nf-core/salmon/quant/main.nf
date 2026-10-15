@@ -10,8 +10,8 @@ process SALMON_QUANT {
         : 'community.wave.seqera.io/library/salmon:2.7.0--74784226202c61b9'}"
 
     input:
-    record(
-        meta:             Record,
+    tuple(
+        meta:             Map,
         reads:            List<Path>,
         args:             String?,
         index:            Path?,
@@ -20,11 +20,12 @@ process SALMON_QUANT {
     )
 
     output:
-    record(
-        meta:              meta,
-        quant_dir:         file("${prefix}"),
-        json_info:         file("*info.json", optional: true),
-        lib_format_counts: file("*lib_format_counts.json", optional: true)
+    // (meta, quant_dir, json_info, lib_format_counts)
+    tuple(
+        meta,
+        file("${prefix}"),
+        file("*info.json", optional: true),
+        file("*lib_format_counts.json", optional: true)
     )
 
     topic:

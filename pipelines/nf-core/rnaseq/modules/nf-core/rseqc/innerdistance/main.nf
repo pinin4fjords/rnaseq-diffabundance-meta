@@ -10,21 +10,22 @@ process RSEQC_INNERDISTANCE {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path,
         bed:  Path
     )
 
     output:
-    record(
-        meta:     meta,
-        distance: file("*distance.txt"),
-        freq:     file("*freq.txt", optional: true),
-        mean:     file("*mean.txt", optional: true),
-        pdf:      file("*.pdf", optional: true),
-        rscript:  file("*.r", optional: true)
+    // (meta, distance, freq, mean, pdf, rscript)
+    tuple(
+        meta,
+        file("*distance.txt"),
+        file("*freq.txt", optional: true),
+        file("*mean.txt", optional: true),
+        file("*.pdf", optional: true),
+        file("*.r", optional: true)
     )
 
     topic:

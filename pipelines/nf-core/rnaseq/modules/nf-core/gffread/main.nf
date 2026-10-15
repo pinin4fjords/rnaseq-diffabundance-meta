@@ -10,19 +10,20 @@ process GFFREAD {
         'quay.io/biocontainers/gffread:0.12.7--hdcf5f25_4' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         gff:   Path,
         fasta: Path?
     )
 
     output:
-    record(
-        meta:  meta,
-        gtf:   file('*.gtf', optional: true),
-        gff:   file('*.gff3', optional: true),
-        fasta: file('*.fasta', optional: true),
-        bed:   file('*.bed', optional: true)
+    // (meta, gtf, gff, fasta, bed)
+    tuple(
+        meta,
+        file('*.gtf', optional: true),
+        file('*.gff3', optional: true),
+        file('*.fasta', optional: true),
+        file('*.bed', optional: true)
     )
 
     topic:

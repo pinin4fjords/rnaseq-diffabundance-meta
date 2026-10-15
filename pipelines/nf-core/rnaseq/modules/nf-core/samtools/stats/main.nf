@@ -10,8 +10,8 @@ process SAMTOOLS_STATS {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         bam:   Path,
         bai:   Path,
         fasta: Path?,
@@ -19,7 +19,8 @@ process SAMTOOLS_STATS {
     )
 
     output:
-    record(meta: meta, stats: file('*.stats'))
+    // (meta, stats)
+    tuple(meta, file('*.stats'))
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'

@@ -10,19 +10,20 @@ process RSEQC_READDUPLICATION {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path
     )
 
     output:
-    record(
-        meta:    meta,
-        seq_xls: file("*seq.DupRate.xls"),
-        pos_xls: file("*pos.DupRate.xls"),
-        pdf:     file("*.pdf"),
-        rscript: file("*.r")
+    // (meta, seq_xls, pos_xls, pdf, rscript)
+    tuple(
+        meta,
+        file("*seq.DupRate.xls"),
+        file("*pos.DupRate.xls"),
+        file("*.pdf"),
+        file("*.r")
     )
 
     topic:

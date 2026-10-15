@@ -10,20 +10,21 @@ process PICARD_MARKDUPLICATES {
         : 'community.wave.seqera.io/library/picard:3.5.0--842d4c70c98af9b4'}"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         bam:   Path,
         fasta: Path?,
         fai:   Path?
     )
 
     output:
-    record(
-        meta:    meta,
-        bam:     file('*.bam', optional: true),
-        bai:     file('*.bai', optional: true),
-        cram:    file('*.cram', optional: true),
-        metrics: file('*.metrics.txt')
+    // (meta, bam, bai, cram, metrics)
+    tuple(
+        meta,
+        file('*.bam', optional: true),
+        file('*.bai', optional: true),
+        file('*.cram', optional: true),
+        file('*.metrics.txt')
     )
 
     topic:

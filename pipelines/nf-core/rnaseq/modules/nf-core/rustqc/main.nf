@@ -24,8 +24,8 @@ process RUSTQC {
         : 'community.wave.seqera.io/library/rustqc:0.2.1--00df1502b490e005'}"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path,
         gtf:  Path,
@@ -33,71 +33,17 @@ process RUSTQC {
     )
 
     output:
-    record(
-        meta: meta,
-        samtools: record(
-            stats:    file("*.stats", optional: true),
-            flagstat: file("*.flagstat", optional: true),
-            idxstats: file("*.idxstats", optional: true)
-        ),
-        preseq: record(
-            lc_extrap: file("*.lc_extrap.txt", optional: true)
-        ),
-        dupradar: record(
-            scatter2d:       files("*duprateExpDens.*", optional: true),
-            boxplot:         files("*duprateExpBoxplot.*", optional: true),
-            hist:            files("*expressionHist.*", optional: true),
-            dupmatrix:       file("*dupMatrix.*", optional: true),
-            intercept_slope: file("*intercept_slope.*", optional: true),
-            multiqc:         files("*{dup_intercept,duprateExpDensCurve}_mqc.txt", optional: true)
-        ),
-        featurecounts: record(
-            counts:  file("*.featureCounts.tsv", optional: true),
-            summary: file("*.featureCounts.biotype.tsv.summary", optional: true)
-        ),
-        biotype: record(
-            tsv:  file("*.biotype_counts.tsv", optional: true),
-            mqc:  file("*.biotype_counts_mqc.tsv", optional: true),
-            rrna: file("*.biotype_counts_rrna_mqc.tsv", optional: true)
-        ),
-        rseqc: record(
-            bamstat:          file("*.bam_stat.txt", optional: true),
-            inferexperiment:  file("*.infer_experiment.txt", optional: true),
-            readdistribution: file("*.read_distribution.txt", optional: true),
-            tin: record(
-                txt: file("*.summary.txt", optional: true),
-                xls: file("*.tin.xls", optional: true)
-            ),
-            innerdistance: record(
-                distance: file("*.inner_distance.txt", optional: true),
-                freq:     file("*.inner_distance_freq.txt", optional: true),
-                mean:     file("*.inner_distance_mean.txt", optional: true),
-                summary:  file("*.inner_distance_summary.txt", optional: true),
-                plot:     files("*.inner_distance_plot.{png,svg}", optional: true),
-                rscript:  file("*.inner_distance_plot.r", optional: true)
-            ),
-            junctionannotation: record(
-                bed:          file("*.junction.bed", optional: true),
-                interact_bed: file("*.junction.Interact.bed", optional: true),
-                xls:          file("*.junction.xls", optional: true),
-                log:          file("*.junction_annotation.log", optional: true),
-                plot:         files("*.splice_*.{png,svg}", optional: true),
-                rscript:      file("*.junction_plot.r", optional: true)
-            ),
-            junctionsaturation: record(
-                summary: file("*.junctionSaturation_summary.txt", optional: true),
-                plot:    files("*.junctionSaturation_plot.{png,svg}", optional: true),
-                rscript: file("*.junctionSaturation_plot.r", optional: true)
-            ),
-            readduplication: record(
-                seq_xls: file("*.seq.DupRate.xls", optional: true),
-                pos_xls: file("*.pos.DupRate.xls", optional: true),
-                plot:    files("*.DupRate_plot.{png,svg}", optional: true),
-                rscript: file("*.DupRate_plot.r", optional: true)
-            )
-        ),
-        qualimap:  file("${prefix}", optional: true),
-        all_files: files("{*.txt,*.tsv,*.xls,*.log,*.stats,*.flagstat,*.idxstats,*.html,*_mqc.*,${prefix}/**}", optional: true)
+    // (meta, samtools(stats, flagstat, idxstats), preseq_lc_extrap, dupradar(scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc), featurecounts(counts, summary), biotype(tsv, mqc, rrna), rseqc(bamstat, inferexperiment, readdistribution, tin(txt, xls), innerdistance(distance, freq, mean, summary, plot, rscript), junctionannotation(bed, interact_bed, xls, log, plot, rscript), junctionsaturation(summary, plot, rscript), readduplication(seq_xls, pos_xls, plot, rscript)), qualimap, all_files)
+    tuple(
+        meta,
+        tuple(file("*.stats", optional: true), file("*.flagstat", optional: true), file("*.idxstats", optional: true)),
+        file("*.lc_extrap.txt", optional: true),
+        tuple(files("*duprateExpDens.*", optional: true), files("*duprateExpBoxplot.*", optional: true), files("*expressionHist.*", optional: true), file("*dupMatrix.*", optional: true), file("*intercept_slope.*", optional: true), files("*{dup_intercept,duprateExpDensCurve}_mqc.txt", optional: true)),
+        tuple(file("*.featureCounts.tsv", optional: true), file("*.featureCounts.biotype.tsv.summary", optional: true)),
+        tuple(file("*.biotype_counts.tsv", optional: true), file("*.biotype_counts_mqc.tsv", optional: true), file("*.biotype_counts_rrna_mqc.tsv", optional: true)),
+        tuple(file("*.bam_stat.txt", optional: true), file("*.infer_experiment.txt", optional: true), file("*.read_distribution.txt", optional: true), tuple(file("*.summary.txt", optional: true), file("*.tin.xls", optional: true)), tuple(file("*.inner_distance.txt", optional: true), file("*.inner_distance_freq.txt", optional: true), file("*.inner_distance_mean.txt", optional: true), file("*.inner_distance_summary.txt", optional: true), files("*.inner_distance_plot.{png,svg}", optional: true), file("*.inner_distance_plot.r", optional: true)), tuple(file("*.junction.bed", optional: true), file("*.junction.Interact.bed", optional: true), file("*.junction.xls", optional: true), file("*.junction_annotation.log", optional: true), files("*.splice_*.{png,svg}", optional: true), file("*.junction_plot.r", optional: true)), tuple(file("*.junctionSaturation_summary.txt", optional: true), files("*.junctionSaturation_plot.{png,svg}", optional: true), file("*.junctionSaturation_plot.r", optional: true)), tuple(file("*.seq.DupRate.xls", optional: true), file("*.pos.DupRate.xls", optional: true), files("*.DupRate_plot.{png,svg}", optional: true), file("*.DupRate_plot.r", optional: true))),
+        file("${prefix}", optional: true),
+        files("{*.txt,*.tsv,*.xls,*.log,*.stats,*.flagstat,*.idxstats,*.html,*_mqc.*,${prefix}/**}", optional: true)
     )
 
     topic:

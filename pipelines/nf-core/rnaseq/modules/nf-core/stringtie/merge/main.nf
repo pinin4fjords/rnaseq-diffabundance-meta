@@ -11,16 +11,17 @@ process STRINGTIE_MERGE {
         'community.wave.seqera.io/library/stringtie:3.0.3--e8043d00caecd051' }"
 
     input:
-    record(
-        meta:           Record,
+    tuple(
+        meta:           Map,
         gtf:            List<Path>,
         annotation_gtf: Path?
     )
 
     output:
-    record(
-        meta:       meta,
-        merged_gtf: file("${prefix}.gtf")
+    // (meta, merged_gtf)
+    tuple(
+        meta,
+        file("${prefix}.gtf")
     )
 
     topic:

@@ -10,21 +10,22 @@ process TRIMGALORE {
         'community.wave.seqera.io/library/trim-galore:2.3.0--6a38a479b4972363'}"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>,
         args:  String?
     )
 
     output:
-    record(
-        meta:     meta,
-        reads:    files("*{3prime,5prime,trimmed,val}{,_1,_2}.fq.gz").toSorted { f -> f.name },
-        log:      files("*report.txt", optional: true).toSorted { f -> f.name },
-        json:     files("*report.json", optional: true).toSorted { f -> f.name },
-        unpaired: files("*unpaired{,_1,_2}.fq.gz", optional: true).toSorted { f -> f.name },
-        html:     files("*.html", optional: true).toSorted { f -> f.name },
-        zip:      files("*.zip", optional: true).toSorted { f -> f.name }
+    // (meta, reads, log, json, unpaired, html, zip)
+    tuple(
+        meta,
+        files("*{3prime,5prime,trimmed,val}{,_1,_2}.fq.gz").toSorted { f -> f.name },
+        files("*report.txt", optional: true).toSorted { f -> f.name },
+        files("*report.json", optional: true).toSorted { f -> f.name },
+        files("*unpaired{,_1,_2}.fq.gz", optional: true).toSorted { f -> f.name },
+        files("*.html", optional: true).toSorted { f -> f.name },
+        files("*.zip", optional: true).toSorted { f -> f.name }
     )
 
     topic:

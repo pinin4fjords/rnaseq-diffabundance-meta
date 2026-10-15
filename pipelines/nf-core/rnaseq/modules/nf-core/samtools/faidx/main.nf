@@ -10,20 +10,21 @@ process SAMTOOLS_FAIDX {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta:      Record,
+    tuple(
+        meta:      Map,
         fasta:     Path,
         fai:       Path?,
         get_sizes: Boolean
     )
 
     output:
-    record(
-        meta:  meta,
-        fa:    file('*.{fa,fasta}', optional: true),
-        sizes: file('*.sizes', optional: true),
-        fai:   file('*.fai', optional: true),
-        gzi:   file('*.gzi', optional: true)
+    // (meta, fa, sizes, fai, gzi)
+    tuple(
+        meta,
+        file('*.{fa,fasta}', optional: true),
+        file('*.sizes', optional: true),
+        file('*.fai', optional: true),
+        file('*.gzi', optional: true)
     )
 
     topic:

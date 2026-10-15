@@ -10,8 +10,8 @@ process STRINGTIE_STRINGTIE {
         'community.wave.seqera.io/library/stringtie:3.0.3--e8043d00caecd051' }"
 
     input:
-    record(
-        meta:           Record,
+    tuple(
+        meta:           Map,
         bam:            Path?,
         lrbam:          Path?,
         mode:           List<String>,
@@ -19,12 +19,13 @@ process STRINGTIE_STRINGTIE {
     )
 
     output:
-    record(
-        meta:           meta,
-        transcript_gtf: file("${prefix}.transcripts.gtf"),
-        abundance:      file("${prefix}.gene.abundance.txt"),
-        coverage_gtf:   file("${prefix}.coverage.gtf", optional: true),
-        ballgown:       files("${prefix}.ballgown/*.ctab", optional: true)
+    // (meta, transcript_gtf, abundance, coverage_gtf, ballgown)
+    tuple(
+        meta,
+        file("${prefix}.transcripts.gtf"),
+        file("${prefix}.gene.abundance.txt"),
+        file("${prefix}.coverage.gtf", optional: true),
+        files("${prefix}.ballgown/*.ctab", optional: true)
     )
 
     topic:

@@ -11,7 +11,7 @@ include { SALMON_QUANT } from '../../../modules/nf-core/salmon/quant/main'
 
 workflow FASTQ_SUBSAMPLE_FQ_SALMON {
     take:
-    ch_samples: Channel<Record> // meta, reads
+    ch_samples: Channel<Tuple> // (meta, reads)
     ch_genome_fasta: Value<Path?> // decoys for the Salmon index, absent when the genome is not provided
     ch_transcript_fasta: Value<Path>
     ch_gtf: Value<Path>
@@ -27,10 +27,12 @@ workflow FASTQ_SUBSAMPLE_FQ_SALMON {
     if (make_index) {
         ch_index_built = SALMON_INDEX(
             ch_transcript_fasta
-                .map { transcript_fasta -> record(meta: record(id: 'salmon_index'), transcript_fasta: transcript_fasta, args: tool_args.salmon_index_strandedness) }
-                .combine(genome_fasta: ch_genome_fasta)
+                .combine(ch_genome_fasta)
+                .map { transcript_fasta, genome_fasta ->
+                    tuple([id: 'salmon_index'], transcript_fasta, genome_fasta, tool_args.salmon_index_strandedness)
+                }
         )
-        ch_index_ref = ch_index_built.map { r -> r.index }
+        ch_index_ref = ch_index_built.map { _meta, index -> index }
         ch_index_file = ch_index_ref
     }
     else {
@@ -41,20 +43,25 @@ workflow FASTQ_SUBSAMPLE_FQ_SALMON {
     //
     // Sub-sample FastQ files with fq
     //
-    ch_subsampled = FQ_SUBSAMPLE(ch_samples.map { r -> record(meta: r.meta, reads: r.reads) })
+    // (meta, reads)
+    ch_subsampled = FQ_SUBSAMPLE(ch_samples)
 
     //
     // Pseudo-alignment with Salmon
     //
+    // (meta, quant_dir, json_info, lib_format_counts)
     ch_quant = SALMON_QUANT(
         ch_subsampled
-            .map { r -> record(meta: r.meta, reads: r.reads) }
-            .combine(index: ch_index_ref, gtf: ch_gtf, transcript_fasta: ch_transcript_fasta)
+            .map { meta, reads -> tuple(meta, reads, null) }
+            .combine(ch_index_ref)
+            .combine(ch_gtf)
+            .combine(ch_transcript_fasta)
     )
 
-    ch_results = ch_subsampled.join(ch_quant, by: 'meta')
+    // (meta, reads, quant_dir, json_info, lib_format_counts)
+    ch_results = ch_subsampled.join(ch_quant, by: 0)
 
     emit:
-    samples:     Channel<Record> = ch_results
-    index_built: Value<Path?>              = ch_index_file // null unless the index was built here
+    samples:     Channel<Tuple> = ch_results // (meta, reads, quant_dir, json_info, lib_format_counts)
+    index_built: Value<Path?>   = ch_index_file // null unless the index was built here
 }

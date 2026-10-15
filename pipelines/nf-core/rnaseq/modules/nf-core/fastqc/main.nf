@@ -10,8 +10,8 @@ process FASTQC {
         : 'quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0'}"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>
     )
 
@@ -19,10 +19,11 @@ process FASTQC {
     stageAs reads, '?/*'
 
     output:
-    record(
-        meta: meta,
-        html: files('*.html').toSorted { f -> f.name },
-        zip:  files('*.zip').toSorted { f -> f.name }
+    // (meta, html, zip)
+    tuple(
+        meta,
+        files('*.html').toSorted { f -> f.name },
+        files('*.zip').toSorted { f -> f.name }
     )
 
     topic:

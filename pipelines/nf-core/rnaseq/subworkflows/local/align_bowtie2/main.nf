@@ -29,7 +29,7 @@ def getBowtie2PercentMapped(align_log) {
 
 workflow ALIGN_BOWTIE2 {
     take:
-    ch_samples // channel: record(meta, reads)
+    ch_samples: Channel<Tuple> // (meta, reads, args)
     index: Value<Path> // /path/to/bowtie2/index/
     fasta: Value<Path?>
     fai: Value<Path?>
@@ -39,39 +39,49 @@ workflow ALIGN_BOWTIE2 {
     main:
 
     //
-    // Map reads with Bowtie2
+    // Map reads with Bowtie2. No fasta is needed for BAM output, and the BAM is sorted with samtools for consistency.
     //
+    // (meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log)
     def ch_bowtie2 = BOWTIE2_ALIGN(
-        ch_samples.combine(
-            index:          index,
-            fasta:          null,   // no fasta needed for BAM output
-            save_unaligned: save_unaligned,
-            sort_bam:       false   // sorted with samtools for consistency
-        )
-    ).filter { r -> !r.raw_bams.isEmpty() }
+        ch_samples
+            .combine(index)
+            .map { meta, reads, args, index_dir -> tuple(meta, reads, args, index_dir, null, save_unaligned, false) }
+    ).filter { _meta, _sam, raw_bams, _cram, _csi, _crai, _unmapped, _bowtie2_log -> !raw_bams.isEmpty() }
 
     //
     // Sort, index BAM file and run samtools stats, flagstat and idxstats
     //
-    def ch_sorted = BAM_SORT_STATS_SAMTOOLS(ch_bowtie2, fasta, fai, tool_args)
+    // (meta, bam, bai, samtools(stats, flagstat, idxstats))
+    def ch_sorted = BAM_SORT_STATS_SAMTOOLS(
+        ch_bowtie2.map { meta, _sam, raw_bams, _cram, _csi, _crai, _unmapped, _bowtie2_log -> tuple(meta, raw_bams) },
+        fasta,
+        fai,
+        tool_args
+    )
 
     // The BAM is aligned to the transcriptome, and its unsorted form is what Salmon quantifies:
     // a coordinate-sorted BAM breaks paired-end quantification.
+    // A remainder join pads a missing side with a single null, so each side's payload is nested
+    // to keep the tuple width fixed: (meta, bowtie2_out, sorted)
     ch_bowtie2_sorted = ch_bowtie2
-        .map { r ->
-            r + record(
-                aligner:           'bowtie2',
-                percent_mapped:    getBowtie2PercentMapped(r.bowtie2.log),
-                transcriptome_bam: r.raw_bams[0]
-            )
+        .map { meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log ->
+            tuple(meta, tuple(sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log, 'bowtie2', getBowtie2PercentMapped(bowtie2_log), raw_bams[0]))
         }
-        .join(ch_sorted, by: 'meta', remainder: true)
-    ch_bowtie2_sorted.subscribe { r ->
-        if( r.bowtie2 == null || r.samtools == null ) {
-            error "Sample '${r.meta.id}' is missing its Bowtie2 sorted BAM result"
+        .join(ch_sorted.map { meta, bam, bai, samtools -> tuple(meta, tuple(bam, bai, samtools)) }, by: 0, remainder: true)
+    ch_bowtie2_sorted.subscribe { meta, bowtie2_out, sorted ->
+        if( bowtie2_out == null || sorted == null ) {
+            error "Sample '${meta.id}' is missing its Bowtie2 sorted BAM result"
         }
     }
-    ch_results = ch_bowtie2_sorted.filter { r -> r.bowtie2 != null && r.samtools != null }
+
+    // (meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log, aligner, percent_mapped, transcriptome_bam, bam, bai, samtools(stats, flagstat, idxstats))
+    ch_results = ch_bowtie2_sorted
+        .filter { _meta, bowtie2_out, sorted -> bowtie2_out != null && sorted != null }
+        .map { meta, bowtie2_out, sorted ->
+            def (sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log, aligner, percent_mapped, transcriptome_bam) = bowtie2_out
+            def (bam, bai, samtools) = sorted
+            tuple(meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log, aligner, percent_mapped, transcriptome_bam, bam, bai, samtools)
+        }
 
     emit:
     ch_results

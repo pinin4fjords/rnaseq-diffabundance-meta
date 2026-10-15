@@ -10,8 +10,8 @@ process PARABRICKS_RNAFQ2BAM {
     container "nvcr.io/nvidia/clara/clara-parabricks:4.7.1-1"
 
     input:
-    record(
-        meta:            Record,
+    tuple(
+        meta:            Map,
         reads:           List<Path>,
         fasta:           Path,
         index:           Path,
@@ -21,29 +21,25 @@ process PARABRICKS_RNAFQ2BAM {
     )
 
     output:
-    record(
-        meta:               meta,
-        raw_bams:           files("${prefix}.bam", optional: true).toSorted { f -> f.name },
-        bam_sorted:         file("${prefix}.sortedByCoord.out.bam", optional: true),
-        bam_sorted_aligned: file("${prefix}.Aligned.sortedByCoord.out.bam", optional: true),
-        bam_unsorted:       file('*Aligned.unsort.out.bam', optional: true),
-        transcriptome_bam:  file('*toTranscriptome.out.bam', optional: true),
-        unmapped:           files('*fastq.gz', optional: true).toSorted { f -> f.name },
-        sam:                file('*.out.sam', optional: true),
-        junction:           file('*.out.junction', optional: true),
-        spl_junc_tab:       file('*.SJ.out.tab', optional: true),
-        read_per_gene_tab:  file('*.ReadsPerGene.out.tab', optional: true),
-        wig:                files('*.wig', optional: true).toSorted { f -> f.name },
-        bedgraph:           files('*.bg', optional: true).toSorted { f -> f.name },
-        orig_bai:           file("${prefix}.bam.bai", optional: true),
-        qc_metrics:         file("${prefix}_qc_metrics", optional: true),
-        duplicate_metrics:  file("${prefix}.duplicate-metrics.txt", optional: true),
-        star:               record(
-            log_final:    file("${prefix}.Log.final.out"),
-            log_out:      file("${prefix}.Log.out"),
-            log_progress: file("${prefix}.Log.progress.out"),
-            tab:          files('*.tab', optional: true).toSorted { f -> f.name }
-        )
+    // (meta, raw_bams, bam_sorted, bam_sorted_aligned, bam_unsorted, transcriptome_bam, unmapped, sam, junction, spl_junc_tab, read_per_gene_tab, wig, bedgraph, orig_bai, qc_metrics, duplicate_metrics, star(log_final, log_out, log_progress, tab))
+    tuple(
+        meta,
+        files("${prefix}.bam", optional: true).toSorted { f -> f.name },
+        file("${prefix}.sortedByCoord.out.bam", optional: true),
+        file("${prefix}.Aligned.sortedByCoord.out.bam", optional: true),
+        file('*Aligned.unsort.out.bam', optional: true),
+        file('*toTranscriptome.out.bam', optional: true),
+        files('*fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.out.sam', optional: true),
+        file('*.out.junction', optional: true),
+        file('*.SJ.out.tab', optional: true),
+        file('*.ReadsPerGene.out.tab', optional: true),
+        files('*.wig', optional: true).toSorted { f -> f.name },
+        files('*.bg', optional: true).toSorted { f -> f.name },
+        file("${prefix}.bam.bai", optional: true),
+        file("${prefix}_qc_metrics", optional: true),
+        file("${prefix}.duplicate-metrics.txt", optional: true),
+        tuple(file("${prefix}.Log.final.out"), file("${prefix}.Log.out"), file("${prefix}.Log.progress.out"), files('*.tab', optional: true).toSorted { f -> f.name })
     )
 
     topic:

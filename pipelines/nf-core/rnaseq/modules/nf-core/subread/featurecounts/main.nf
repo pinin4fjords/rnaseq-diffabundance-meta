@@ -10,18 +10,19 @@ process SUBREAD_FEATURECOUNTS {
         : 'quay.io/biocontainers/subread:2.1.1--h577a1d6_0'}"
 
     input:
-    record(
-        meta:       Record,
+    tuple(
+        meta:       Map,
         bam:        Path,
         args:       String?,
         annotation: Path
     )
 
     output:
-    record(
-        meta:    meta,
-        counts:  file("*featureCounts.tsv"),
-        summary: file("*featureCounts.tsv.summary")
+    // (meta, counts, summary)
+    tuple(
+        meta,
+        file("*featureCounts.tsv"),
+        file("*featureCounts.tsv.summary")
     )
 
     topic:

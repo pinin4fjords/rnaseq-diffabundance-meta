@@ -10,8 +10,8 @@ process BOWTIE2_ALIGN {
         'community.wave.seqera.io/library/bowtie2_htslib_samtools_pigz:edeb13799090a2a6' }"
 
     input:
-    record(
-        meta:           Record,
+    tuple(
+        meta:           Map,
         reads:          List<Path>,
         args:           String?,
         index:          Path,
@@ -21,15 +21,16 @@ process BOWTIE2_ALIGN {
     )
 
     output:
-    record(
-        meta:     meta,
-        sam:      file('*.sam',  optional: true),
-        raw_bams: files('*.bam', optional: true).toSorted { f -> f.name },
-        cram:     file('*.cram', optional: true),
-        csi:      file('*.csi',  optional: true),
-        crai:     file('*.crai', optional: true),
-        unmapped: files('*fastq.gz', optional: true).toSorted { f -> f.name },
-        bowtie2:  record(log: file('*.log'))
+    // (meta, sam, raw_bams, cram, csi, crai, unmapped, bowtie2_log)
+    tuple(
+        meta,
+        file('*.sam',  optional: true),
+        files('*.bam', optional: true).toSorted { f -> f.name },
+        file('*.cram', optional: true),
+        file('*.csi',  optional: true),
+        file('*.crai', optional: true),
+        files('*fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.log')
     )
 
     topic:

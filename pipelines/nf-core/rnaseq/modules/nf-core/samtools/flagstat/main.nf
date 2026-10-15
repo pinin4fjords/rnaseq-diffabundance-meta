@@ -10,14 +10,15 @@ process SAMTOOLS_FLAGSTAT {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path
     )
 
     output:
-    record(meta: meta, flagstat: file('*.flagstat'))
+    // (meta, flagstat)
+    tuple(meta, file('*.flagstat'))
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'

@@ -10,8 +10,8 @@ process CAT_FASTQ {
         : 'community.wave.seqera.io/library/coreutils_grep_gzip_lbzip2_pruned:838ba80435a629f8'}"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>
     )
 
@@ -19,7 +19,8 @@ process CAT_FASTQ {
     stageAs reads, 'input*/*'
 
     output:
-    record(meta: meta, reads: files("*.merged.fastq.gz").toSorted { f -> f.name })
+    // (meta, reads)
+    tuple(meta, files("*.merged.fastq.gz").toSorted { f -> f.name })
 
     topic:
     tuple(task.process, "cat", eval("cat --version 2>&1 | head -n 1 | sed 's/^.*coreutils) //; s/ .*\$//'")) >> 'versions'

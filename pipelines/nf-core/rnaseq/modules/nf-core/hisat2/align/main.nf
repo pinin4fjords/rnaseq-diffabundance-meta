@@ -10,8 +10,8 @@ process HISAT2_ALIGN {
         : 'community.wave.seqera.io/library/hisat2_samtools:a0c9b8ccf8116a89'}"
 
     input:
-    record(
-        meta:           Record,
+    tuple(
+        meta:           Map,
         reads:          List<Path>,
         args:           String?,
         index:          Path,
@@ -20,11 +20,12 @@ process HISAT2_ALIGN {
     )
 
     output:
-    record(
-        meta:     meta,
-        raw_bams: files('*.bam').toSorted { f -> f.name },
-        unmapped: files('*fastq.gz', optional: true).toSorted { f -> f.name },
-        hisat2:   record(summary: file('*.log'))
+    // (meta, raw_bams, unmapped, hisat2_summary)
+    tuple(
+        meta,
+        files('*.bam').toSorted { f -> f.name },
+        files('*fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.log')
     )
 
     topic:

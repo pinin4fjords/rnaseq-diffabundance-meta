@@ -10,14 +10,15 @@ process FQ_LINT {
         'quay.io/biocontainers/fq:0.12.0--h9ee0642_0' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>,
         args:  String?
     )
 
     output:
-    record(meta: meta, lint: file("*.fq_lint.txt"))
+    // (meta, lint)
+    tuple(meta, file("*.fq_lint.txt"))
 
     topic:
     tuple(task.process, 'fq', eval("fq lint --version | sed 's/fq-lint //; s/ .*//'")) >> 'versions'

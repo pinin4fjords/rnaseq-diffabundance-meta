@@ -10,14 +10,15 @@ process UCSC_BEDCLIP {
         'quay.io/biocontainers/ucsc-bedclip:482--h0b57e2e_0' }"
 
     input:
-    record(
-        meta:     Record,
+    tuple(
+        meta:     Map,
         bedgraph: Path,
         sizes:    Path
     )
 
     output:
-    record(meta: meta, bedgraph: file("*.bedGraph"))
+    // (meta, bedgraph)
+    tuple(meta, file("*.bedGraph"))
 
     topic:
     // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.

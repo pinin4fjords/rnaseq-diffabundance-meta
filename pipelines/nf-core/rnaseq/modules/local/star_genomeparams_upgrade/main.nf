@@ -10,8 +10,8 @@ process STAR_GENOMEPARAMS_UPGRADE {
         'community.wave.seqera.io/library/gawk:5.3.1--e09efb5dfc4b8156' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         index: Path
     )
 
@@ -19,7 +19,8 @@ process STAR_GENOMEPARAMS_UPGRADE {
     stageAs index, 'input_index'
 
     output:
-    record(meta: meta, index: file('star'))
+    // (meta, index)
+    tuple(meta, file('star'))
 
     topic:
     tuple(task.process, 'gawk', eval("awk -Wversion | sed '1!d; s/.*Awk //; s/,.*//'")) >> 'versions'

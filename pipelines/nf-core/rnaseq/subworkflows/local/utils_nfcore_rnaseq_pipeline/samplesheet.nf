@@ -7,7 +7,7 @@ include { validate                  } from 'plugin/nf-schema'
 include { checkSamplesAfterGrouping } from './main'
 
 //
-// Samplesheet columns in schema order. `sample` is stored in the meta record as `id`.
+// Samplesheet columns in schema order. `sample` is stored in the meta map as `id`.
 //
 def samplesheetColumns() {
     return [ 'sample', 'fastq_1', 'fastq_2', 'strandedness', 'seq_platform', 'seq_center', 'genome_bam', 'transcriptome_bam', 'percent_mapped' ]
@@ -52,10 +52,10 @@ def samplesheetRowsToCsv(rows) {
 
 //
 // Validate the samplesheet rows and merge the rows of a sample that has several sequencing runs
-// into one plain map per sample. Rows are ordered by file path first: the channel they come from
+// into one tuple per sample. Rows are ordered by file path first: the channel they come from
 // has no fixed order, and the order of the runs decides the order in which they are merged.
-// Keys: meta (a record), reads (all FASTQ files), runs (one list of FASTQ files per run), bam,
-// transcriptome_bam, percent_mapped and prealigned. A sample is prealigned when alignment is
+// (meta, reads, runs, bam, transcriptome_bam, percent_mapped, prealigned): meta is a map, reads
+// all FASTQ files, runs one list of FASTQ files per run. A sample is prealigned when alignment is
 // skipped and the samplesheet supplies BAM files for it; only prealigned samples keep
 // `percent_mapped` in their meta.
 //
@@ -64,7 +64,7 @@ def readSamplesheet(sample_rows, schema, skip_alignment) {
 
     def rows = sample_rows.sort(false) { row -> "${row.fastq_1 ?: row.genome_bam ?: row.transcriptome_bam}" as String }.collect { row ->
         def optional = [ seq_platform: row.seq_platform, seq_center: row.seq_center, percent_mapped: row.percent_mapped ].findAll { _key, value -> value != null }
-        def meta = record([ id: row.sample as String, strandedness: row.strandedness ] + optional + [ single_end: !row.fastq_2 ])
+        def meta = [ id: row.sample as String, strandedness: row.strandedness ] + optional + [ single_end: !row.fastq_2 ]
         return [ meta: meta, run: row.fastq_2 ? [ row.fastq_1, row.fastq_2 ] : [ row.fastq_1 ], genome_bam: row.genome_bam, transcriptome_bam: row.transcriptome_bam ]
     }
 
@@ -73,14 +73,14 @@ def readSamplesheet(sample_rows, schema, skip_alignment) {
             [ id, group*.meta, group*.run, group*.genome_bam, group*.transcriptome_bam ]
         )
         def prealigned = skip_alignment && (genome_bam || transcriptome_bam) ? true : false
-        return [
-            meta:              prealigned ? meta : record(meta.findAll { key, _value -> key != 'percent_mapped' }),
-            reads:             prealigned ? [] : runs.flatten(),
-            runs:              prealigned ? [] : runs,
-            bam:               genome_bam,
-            transcriptome_bam: transcriptome_bam,
-            percent_mapped:    prealigned ? (meta.percent_mapped ?: null) : null,
-            prealigned:        prealigned
-        ]
+        return tuple(
+            prealigned ? meta : meta.findAll { key, _value -> key != 'percent_mapped' },
+            prealigned ? [] : runs.flatten(),
+            prealigned ? [] : runs,
+            genome_bam,
+            transcriptome_bam,
+            prealigned ? (meta.percent_mapped ?: null) : null,
+            prealigned
+        )
     }
 }

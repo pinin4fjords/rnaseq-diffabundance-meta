@@ -10,13 +10,14 @@ process BOWTIE2_BUILD {
         'community.wave.seqera.io/library/bowtie2_htslib_samtools_pigz:edeb13799090a2a6' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         fasta: Path
     )
 
     output:
-    record(meta: meta, index: file('bowtie2'))
+    // (meta, index)
+    tuple(meta, file('bowtie2'))
 
     topic:
     tuple(task.process, 'bowtie2', eval("bowtie2 --version 2>&1 | sed -n 's/.*bowtie2-align-s version //p'")) >> 'versions'

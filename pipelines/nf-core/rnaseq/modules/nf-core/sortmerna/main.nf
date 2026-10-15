@@ -10,19 +10,20 @@ process SORTMERNA {
         'community.wave.seqera.io/library/sortmerna:4.3.7--b730cad73fc42b8e' }"
 
     input:
-    record(
-        meta:   Record,
+    tuple(
+        meta:   Map,
         reads:  List<Path>,
         fastas: List<Path>,
         index:  Path?
     )
 
     output:
-    record(
-        meta:  meta,
-        reads: files('*non_rRNA.fastq.gz', optional: true).toSorted { f -> f.name },
-        log:   file('*.log', optional: true),
-        index: file('idx', optional: true)
+    // (meta, reads, log, index)
+    tuple(
+        meta,
+        files('*non_rRNA.fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.log', optional: true),
+        file('idx', optional: true)
     )
 
     topic:

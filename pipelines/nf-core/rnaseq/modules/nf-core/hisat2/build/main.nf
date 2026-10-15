@@ -10,8 +10,8 @@ process HISAT2_BUILD {
         : 'community.wave.seqera.io/library/hisat2:2.2.3--2616fa83d3b9d8f8'}"
 
     input:
-    record(
-        meta:                Record,
+    tuple(
+        meta:                Map,
         fasta:               Path,
         gtf:                 Path?,
         splicesites:         Path?,
@@ -19,7 +19,8 @@ process HISAT2_BUILD {
     )
 
     output:
-    record(meta: meta, index: file('hisat2'))
+    // (meta, index)
+    tuple(meta, file('hisat2'))
 
     topic:
     tuple(task.process, 'hisat2', eval("hisat2 --version | sed -n 's/.*version \\([^ ]*\\).*/\\1/p'")) >> 'versions'

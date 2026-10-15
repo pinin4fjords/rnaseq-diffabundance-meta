@@ -82,7 +82,7 @@ workflow PREPARE_GENOME_INDICES {
     // 2) BBSplit index: uses FASTA only if we generate from scratch
     //---------------------------------------------------------
     if ('bbsplit' in prepare_tool_indices && bbsplit_index && bbsplit_index.endsWith('.tar.gz')) {
-        ch_bbsplit_index = UNTAR_BBSPLIT_INDEX(record(meta: record(id: 'bbsplit_index'), archive: file(bbsplit_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bbsplit_index = UNTAR_BBSPLIT_INDEX(tuple([id: 'bbsplit_index'], file(bbsplit_index, checkIfExists: true))).map { _meta, dir -> dir }
         ch_bbsplit_log   = ch_no_path
     } else if ('bbsplit' in prepare_tool_indices && bbsplit_index) {
         ch_bbsplit_index = channel.value(file(bbsplit_index, checkIfExists: true))
@@ -92,21 +92,21 @@ workflow PREPARE_GENOME_INDICES {
         def bbsplit_rows = file(bbsplit_fasta_list, checkIfExists: true).splitCsv()
 
         // Index-only run: no reads
-        def ch_bbsplit: Value<Record> = BBMAP_BBSPLIT(
+        def ch_bbsplit: Value<Tuple> = BBMAP_BBSPLIT(  // (meta, index, reads, other_genome_reads, stats, log)
             ch_fasta.map { fasta_file ->
-                record(
-                    meta:             record(id: 'bbsplit_index'),
-                    reads:            [] as List<Path>,
-                    index:            null as Path,
-                    primary_ref:      fasta_file,
-                    other_ref_names:  bbsplit_rows.collect { row -> row[0] as String }.toList(),
-                    other_ref_paths:  bbsplit_rows.collect { row -> file(row[1], checkIfExists: true) }.toList(),
-                    only_build_index: true
+                tuple(
+                    [id: 'bbsplit_index'],
+                    [] as List<Path>,
+                    null as Path,
+                    fasta_file,
+                    bbsplit_rows.collect { row -> row[0] as String }.toList(),
+                    bbsplit_rows.collect { row -> file(row[1], checkIfExists: true) }.toList(),
+                    true
                 )
             }
         )
-        ch_bbsplit_index = ch_bbsplit.map { r -> r.index }
-        ch_bbsplit_log   = ch_bbsplit.map { r -> r.log }
+        ch_bbsplit_index = ch_bbsplit.map { _meta, index, _reads, _other_genome_reads, _stats, _log -> index }
+        ch_bbsplit_log   = ch_bbsplit.map { _meta, _index, _reads, _other_genome_reads, _stats, bbsplit_log -> bbsplit_log }
     } else {
         ch_bbsplit_index = ch_no_path
         ch_bbsplit_log   = ch_no_path
@@ -116,17 +116,17 @@ workflow PREPARE_GENOME_INDICES {
     // 3) SortMeRNA index
     //-------------------------------------------------------------
     if ('sortmerna' in prepare_tool_indices && sortmerna_index && sortmerna_index.endsWith('.tar.gz')) {
-        ch_sortmerna_index = UNTAR_SORTMERNA_INDEX(record(meta: record(id: 'sortmerna_index'), archive: file(sortmerna_index, checkIfExists: true))).map { r -> r.dir }
+        ch_sortmerna_index = UNTAR_SORTMERNA_INDEX(tuple([id: 'sortmerna_index'], file(sortmerna_index, checkIfExists: true))).map { _meta, dir -> dir }
     } else if ('sortmerna' in prepare_tool_indices && sortmerna_index) {
         ch_sortmerna_index = channel.value(file(sortmerna_index, checkIfExists: true))
     } else if ('sortmerna' in prepare_tool_indices) {
         // Index-only run: no reads
-        def ch_sortmerna_built: Value<Record> = SORTMERNA_INDEX(
+        def ch_sortmerna_built: Value<Tuple> = SORTMERNA_INDEX(  // (meta, reads, log, index)
             ch_rrna_fastas.collect().map { refs ->
-                record(meta: record(id: 'rrna_refs'), reads: [], fastas: refs.toList(), index: null)
+                tuple([id: 'rrna_refs'], [], refs.toList(), null)
             }
         )
-        ch_sortmerna_index = ch_sortmerna_built.map { r -> r.index }
+        ch_sortmerna_index = ch_sortmerna_built.map { _meta, _reads, _log, index -> index }
     } else {
         ch_sortmerna_index = ch_no_path
     }
@@ -136,7 +136,7 @@ workflow PREPARE_GENOME_INDICES {
     //-------------------------------------------------------------
     // No need to build as that is handled in the fastq_remove_rrna subworkflow from nf-core
     if ('bowtie2_rrna' in prepare_tool_indices && bowtie2_rrna_index.endsWith('.tar.gz')) {
-        ch_bowtie2_rrna_index = UNTAR_BOWTIE2_RRNA_INDEX(record(meta: record(id: 'bowtie2_rrna_index'), archive: file(bowtie2_rrna_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bowtie2_rrna_index = UNTAR_BOWTIE2_RRNA_INDEX(tuple([id: 'bowtie2_rrna_index'], file(bowtie2_rrna_index, checkIfExists: true))).map { _meta, dir -> dir }
     } else if ('bowtie2_rrna' in prepare_tool_indices) {
         ch_bowtie2_rrna_index = channel.value(file(bowtie2_rrna_index, checkIfExists: true))
     } else {
@@ -154,33 +154,34 @@ workflow PREPARE_GENOME_INDICES {
     def build_star = prepare_tool_indices.intersect(['star_salmon', 'star_rsem']) ? true : false
     if (build_star && use_parabricks_star && fasta_provided) {
         // Parabricks needs its own STAR index built with its bundled STAR version
-        def ch_star_generated: Value<Record> = PARABRICKS_STARGENOMEGENERATE(
+        def ch_star_generated: Value<Tuple> = PARABRICKS_STARGENOMEGENERATE(  // (meta, index)
             ch_fasta
-                .map { item -> record(meta: record(id: 'genome'), fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
-                .combine(gtf: ch_gtf)
+                .map { fasta_file -> tuple([id: 'genome'], fasta_file, prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
+                .combine(ch_gtf)
         )
-        ch_star_index         = ch_star_generated.map { r -> r.index }
+        ch_star_index         = ch_star_generated.map { _meta, index -> index }
         ch_star_index_publish = ch_star_index
     } else if (build_star && star_index) {
+        // (meta, index)
         if (star_index.endsWith('.tar.gz')) {
-            ch_star_raw = UNTAR_STAR_INDEX(record(meta: record(id: 'star_index'), archive: file(star_index, checkIfExists: true)))
-                .map { r -> record(meta: r.meta, index: r.dir) }
+            ch_star_raw = UNTAR_STAR_INDEX(tuple([id: 'star_index'], file(star_index, checkIfExists: true)))
         } else {
-            ch_star_raw = channel.value(record(meta: record(id: 'star_index'), index: file(star_index, checkIfExists: true)))
+            ch_star_raw = channel.value(tuple([id: 'star_index'], file(star_index, checkIfExists: true)))
         }
-        ch_star_index_publish = ch_star_raw.map { r -> r.index }
+        ch_star_index_publish = ch_star_raw.map { _meta, index -> index }
         if (star_index_legacy) {
-            ch_star_index = STAR_GENOMEPARAMS_UPGRADE(ch_star_raw).map { r -> r.index }
+            ch_star_index = STAR_GENOMEPARAMS_UPGRADE(ch_star_raw).map { _meta, index -> index }
         } else {
             ch_star_index = ch_star_index_publish
         }
     } else if (build_star && fasta_provided) {
+        // (meta, index)
         ch_star_generated = STAR_GENOMEGENERATE(
             ch_fasta
-                .map { item -> record(meta: record(id: 'genome'), fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
-                .combine(gtf: ch_gtf)
+                .map { fasta_file -> tuple([id: 'genome'], fasta_file, prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
+                .combine(ch_gtf)
         )
-        ch_star_index         = ch_star_generated.map { r -> r.index }
+        ch_star_index         = ch_star_generated.map { _meta, index -> index }
         ch_star_index_publish = ch_star_index
     } else {
         ch_star_index         = ch_no_path
@@ -193,23 +194,25 @@ workflow PREPARE_GENOME_INDICES {
     // ch_rsem_transcript_fasta is the incidental *transcripts.fa the index step also emits; unused by the pipeline, published under --save_reference.
     def build_rsem = 'star_rsem' in prepare_tool_indices
     if (build_rsem && rsem_index && rsem_index.endsWith('.tar.gz')) {
-        ch_rsem_index            = UNTAR_RSEM_INDEX(record(meta: record(id: 'rsem_index'), archive: file(rsem_index, checkIfExists: true))).map { r -> r.dir }
+        ch_rsem_index            = UNTAR_RSEM_INDEX(tuple([id: 'rsem_index'], file(rsem_index, checkIfExists: true))).map { _meta, dir -> dir }
         ch_rsem_transcript_fasta = ch_no_path
     } else if (build_rsem && rsem_index) {
         ch_rsem_index            = channel.value(file(rsem_index, checkIfExists: true))
         ch_rsem_transcript_fasta = ch_no_path
     } else if (build_rsem && fasta_provided && use_sentieon_star) {
+        // (meta, index, transcript_fasta)
         ch_rsem_reference        = SENTIEON_RSEM_PREPAREREFERENCE_GENOME(
-            ch_fasta.map { fasta_file -> record(meta: record(id: 'genome'), fasta: fasta_file) }.combine(gtf: ch_gtf)
+            ch_fasta.map { fasta_file -> tuple([id: 'genome'], fasta_file) }.combine(ch_gtf)
         )
-        ch_rsem_index            = ch_rsem_reference.map { r -> r.index }
-        ch_rsem_transcript_fasta = ch_rsem_reference.map { r -> r.transcript_fasta }
+        ch_rsem_index            = ch_rsem_reference.map { _meta, index, _tx_fasta -> index }
+        ch_rsem_transcript_fasta = ch_rsem_reference.map { _meta, _index, tx_fasta -> tx_fasta }
     } else if (build_rsem && fasta_provided) {
+        // (meta, index, transcript_fasta)
         ch_rsem_reference        = RSEM_PREPAREREFERENCE_GENOME(
-            ch_fasta.map { fasta_file -> record(meta: record(id: 'genome'), fasta: fasta_file) }.combine(gtf: ch_gtf)
+            ch_fasta.map { fasta_file -> tuple([id: 'genome'], fasta_file) }.combine(ch_gtf)
         )
-        ch_rsem_index            = ch_rsem_reference.map { r -> r.index }
-        ch_rsem_transcript_fasta = ch_rsem_reference.map { r -> r.transcript_fasta }
+        ch_rsem_index            = ch_rsem_reference.map { _meta, index, _tx_fasta -> index }
+        ch_rsem_transcript_fasta = ch_rsem_reference.map { _meta, _index, tx_fasta -> tx_fasta }
     } else {
         ch_rsem_index            = ch_no_path
         ch_rsem_transcript_fasta = ch_no_path
@@ -222,12 +225,12 @@ workflow PREPARE_GENOME_INDICES {
     if (build_hisat2 && splicesites) {
         ch_splicesites = channel.value(file(splicesites, checkIfExists: true))
     } else if (build_hisat2 && fasta_provided) {
-        ch_splicesites = HISAT2_EXTRACTSPLICESITES(ch_gtf.map { item -> record(meta: record(id: 'genome'), gtf: item) }).map { r -> r.splicesites }
+        ch_splicesites = HISAT2_EXTRACTSPLICESITES(ch_gtf.map { gtf_file -> tuple([id: 'genome'], gtf_file) }).map { _meta, ss_file -> ss_file }
     } else {
         ch_splicesites = ch_no_path
     }
     if (build_hisat2 && hisat2_index && hisat2_index.endsWith('.tar.gz')) {
-        ch_hisat2_index = UNTAR_HISAT2_INDEX(record(meta: record(id: 'hisat2_index'), archive: file(hisat2_index, checkIfExists: true))).map { r -> r.dir }
+        ch_hisat2_index = UNTAR_HISAT2_INDEX(tuple([id: 'hisat2_index'], file(hisat2_index, checkIfExists: true))).map { _meta, dir -> dir }
     } else if (build_hisat2 && hisat2_index) {
         ch_hisat2_index = channel.value(file(hisat2_index, checkIfExists: true))
     } else if (build_hisat2 && fasta_provided) {
@@ -235,8 +238,8 @@ workflow PREPARE_GENOME_INDICES {
             ch_fasta
                 .combine(ch_gtf)
                 .combine(ch_splicesites)
-                .map { fasta_file, gtf_file, ss_file -> record(meta: record(id: 'genome'), fasta: fasta_file, gtf: gtf_file, splicesites: ss_file, hisat2_build_memory: memoryToGiga(hisat2_build_memory)) }
-        ).map { r -> r.index }
+                .map { fasta_file, gtf_file, ss_file -> tuple([id: 'genome'], fasta_file, gtf_file, ss_file, memoryToGiga(hisat2_build_memory)) }
+        ).map { _meta, index -> index }
     } else {
         ch_hisat2_index = ch_no_path
     }
@@ -246,13 +249,13 @@ workflow PREPARE_GENOME_INDICES {
     //---------------------------------------------------------
     def build_bowtie2 = 'bowtie2_salmon' in prepare_tool_indices
     if (build_bowtie2 && bowtie2_index && bowtie2_index.endsWith('.tar.gz')) {
-        ch_bowtie2_index = UNTAR_BOWTIE2_INDEX(record(meta: record(id: 'bowtie2_index'), archive: file(bowtie2_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bowtie2_index = UNTAR_BOWTIE2_INDEX(tuple([id: 'bowtie2_index'], file(bowtie2_index, checkIfExists: true))).map { _meta, dir -> dir }
     } else if (build_bowtie2 && bowtie2_index) {
         ch_bowtie2_index = channel.value(file(bowtie2_index, checkIfExists: true))
     } else if (build_bowtie2) {
         ch_bowtie2_index = BOWTIE2_BUILD(
-            ch_transcript_fasta.map { fasta_file -> record(meta: record(id: 'transcripts'), fasta: fasta_file) }
-        ).map { r -> r.index }
+            ch_transcript_fasta.map { fasta_file -> tuple([id: 'transcripts'], fasta_file) }
+        ).map { _meta, index -> index }
     } else {
         ch_bowtie2_index = ch_no_path
     }
@@ -261,74 +264,80 @@ workflow PREPARE_GENOME_INDICES {
     // 8) Salmon index -> can skip genome if transcript_fasta is enough
     //------------------------------------------------------
     if (salmon_index && salmon_index.endsWith('.tar.gz')) {
-        ch_salmon_index = UNTAR_SALMON_INDEX(record(meta: record(id: 'salmon_index'), archive: file(salmon_index))).map { r -> r.dir }
+        ch_salmon_index = UNTAR_SALMON_INDEX(tuple([id: 'salmon_index'], file(salmon_index))).map { _meta, dir -> dir }
     } else if (salmon_index) {
         ch_salmon_index = channel.value(file(salmon_index))
     } else if ('salmon' in prepare_tool_indices && fasta_provided) {
         // genome_fasta may be null (no decoys)
-        def ch_salmon_built: Value<Record> = SALMON_INDEX(
+        def ch_salmon_built: Value<Tuple> = SALMON_INDEX(  // (meta, index)
             ch_transcript_fasta
-                .map { transcript_fasta_file -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
-                .combine(genome_fasta: ch_fasta)
+                .combine(ch_fasta)
+                .map { transcript_fasta_file, genome_fasta_file -> tuple([id: 'salmon_index'], transcript_fasta_file, genome_fasta_file, tool_args.salmon_index) }
         )
-        ch_salmon_index = ch_salmon_built.map { r -> r.index }
+        ch_salmon_index = ch_salmon_built.map { _meta, index -> index }
     } else if ('salmon' in prepare_tool_indices) {
+        // (meta, index)
         ch_salmon_built = SALMON_INDEX(
-            ch_transcript_fasta.map { item -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: item, genome_fasta: null) }
+            ch_transcript_fasta.map { transcript_fasta_file -> tuple([id: 'salmon_index'], transcript_fasta_file, null, tool_args.salmon_index) }
         )
-        ch_salmon_index = ch_salmon_built.map { r -> r.index }
+        ch_salmon_index = ch_salmon_built.map { _meta, index -> index }
     } else {
         // Strandedness inference needs a Salmon index even without --pseudo_aligner salmon. Whether
         // any sample asks for it is only known once the samplesheet has been read, so the build
         // is gated on that value.
-        def ch_salmon_gated: Channel<Record> = SALMON_INDEX(
+        def ch_salmon_gated: Channel<Tuple> = SALMON_INDEX(  // (meta, index)
             ch_transcript_fasta
-                .map { transcript_fasta_file -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
-                .combine(genome_fasta: ch_fasta)
-                .combine(any_auto: any_auto_strandedness)
-                .flatMap { r ->
-                    r.any_auto ? [ record(meta: r.meta, args: r.args, transcript_fasta: r.transcript_fasta, genome_fasta: fasta_provided ? r.genome_fasta : null) ] : []
+                .combine(ch_fasta)
+                .combine(any_auto_strandedness)
+                .flatMap { transcript_fasta_file, genome_fasta_file, any_auto ->
+                    any_auto ? [ tuple([id: 'salmon_index'], transcript_fasta_file, fasta_provided ? genome_fasta_file : null, tool_args.salmon_index) ] : []
                 }
         )
-        ch_salmon_index = ch_salmon_gated.collect().map { rs -> rs.isEmpty() ? null : rs.toList().first().index as Path }
+        ch_salmon_index = ch_salmon_gated
+            .map { _meta, index -> index }
+            .collect()
+            .map { indices -> indices.isEmpty() ? null : indices.toList().first() as Path }
     }
 
     //--------------------------------------------------
     // 9) Kallisto index -> only needs transcript FASTA
     //--------------------------------------------------
     if (kallisto_index && kallisto_index.endsWith('.tar.gz')) {
-        ch_kallisto_index = UNTAR_KALLISTO_INDEX(record(meta: record(id: 'kallisto_index'), archive: file(kallisto_index))).map { r -> r.dir }
+        ch_kallisto_index = UNTAR_KALLISTO_INDEX(tuple([id: 'kallisto_index'], file(kallisto_index))).map { _meta, dir -> dir }
     } else if (kallisto_index) {
         ch_kallisto_index = channel.value(file(kallisto_index))
     } else if ('kallisto' in prepare_tool_indices) {
-        def ch_kallisto_built: Value<Record> = KALLISTO_INDEX(ch_transcript_fasta.map { item -> record(meta: record(id: 'kallisto_index'), fasta: item, args: tool_args.kallisto_index) })
-        ch_kallisto_index = ch_kallisto_built.map { r -> r.index }
+        def ch_kallisto_built: Value<Tuple> = KALLISTO_INDEX(  // (meta, index)
+            ch_transcript_fasta.map { fasta_file -> tuple([id: 'kallisto_index'], fasta_file, tool_args.kallisto_index) }
+        )
+        ch_kallisto_index = ch_kallisto_built.map { _meta, index -> index }
     } else {
         ch_kallisto_index = ch_no_path
     }
 
     //--------------------------------------------------
-    // 10) Streamed index artifacts, one record per producer
+    // 10) Streamed index artifacts, one (kind, file) tuple per producer
     //--------------------------------------------------
     // Each index is an independent, optionally user-supplied producer with no shared
-    // key, so they stream as tagged records via mix() rather than fusing into one row.
+    // key, so they stream as tagged tuples via mix() rather than fusing into one row.
     // Absent indices hold null and are dropped by the trailing filter.
-    ch_indices = ch_star_index_publish.flatMap { p -> [ record(kind: 'star', file: p) ] }
-        .mix(ch_rsem_index.flatMap              { p -> [ record(kind: 'rsem', file: p) ] })
-        .mix(ch_rsem_transcript_fasta.flatMap   { p -> [ record(kind: 'rsem_transcript_fasta', file: p) ] })
-        .mix(ch_hisat2_index.flatMap            { p -> [ record(kind: 'hisat2', file: p) ] })
-        .mix(ch_splicesites.flatMap             { p -> [ record(kind: 'hisat2_splicesites', file: p) ] })
-        .mix(ch_bowtie2_index.flatMap           { p -> [ record(kind: 'bowtie2', file: p) ] })
-        .mix(ch_salmon_index.flatMap            { p -> [ record(kind: 'salmon', file: p) ] })
-        .mix(ch_kallisto_index.flatMap          { p -> [ record(kind: 'kallisto', file: p) ] })
-        .mix(ch_bbsplit_index.flatMap           { p -> [ record(kind: 'bbsplit', file: p) ] })
-        .mix(ch_bbsplit_log.flatMap             { p -> [ record(kind: 'bbsplit_log', file: p) ] })
-        .mix(ch_sortmerna_index.flatMap         { p -> [ record(kind: 'sortmerna', file: p) ] })
-        .mix(ch_bowtie2_rrna_index.flatMap      { p -> [ record(kind: 'bowtie2_rrna', file: p) ] })
-        .filter { r -> taskOutputOrNull(r.file) != null }
+    // (kind, file)
+    ch_indices = ch_star_index_publish.flatMap { p -> [ tuple('star', p) ] }
+        .mix(ch_rsem_index.flatMap              { p -> [ tuple('rsem', p) ] })
+        .mix(ch_rsem_transcript_fasta.flatMap   { p -> [ tuple('rsem_transcript_fasta', p) ] })
+        .mix(ch_hisat2_index.flatMap            { p -> [ tuple('hisat2', p) ] })
+        .mix(ch_splicesites.flatMap             { p -> [ tuple('hisat2_splicesites', p) ] })
+        .mix(ch_bowtie2_index.flatMap           { p -> [ tuple('bowtie2', p) ] })
+        .mix(ch_salmon_index.flatMap            { p -> [ tuple('salmon', p) ] })
+        .mix(ch_kallisto_index.flatMap          { p -> [ tuple('kallisto', p) ] })
+        .mix(ch_bbsplit_index.flatMap           { p -> [ tuple('bbsplit', p) ] })
+        .mix(ch_bbsplit_log.flatMap             { p -> [ tuple('bbsplit_log', p) ] })
+        .mix(ch_sortmerna_index.flatMap         { p -> [ tuple('sortmerna', p) ] })
+        .mix(ch_bowtie2_rrna_index.flatMap      { p -> [ tuple('bowtie2_rrna', p) ] })
+        .filter { _kind, index_file -> taskOutputOrNull(index_file) != null }
 
     // The index streams stay separate named emits: RNASEQ consumes each index independently,
-    // and no per-sample key exists to fuse them into one record.
+    // and no per-sample key exists to fuse them into one tuple.
     emit:
     splicesites:        Value<Path?>            = ch_splicesites        // genome.splicesites.txt, null when absent
     bbsplit_index:      Value<Path?>            = ch_bbsplit_index      // bbsplit/index/, null when absent
@@ -340,5 +349,5 @@ workflow PREPARE_GENOME_INDICES {
     bowtie2_index:      Value<Path?>            = ch_bowtie2_index      // bowtie2/index/, null when absent
     salmon_index:       Value<Path?>            = ch_salmon_index       // salmon/index/, null when absent
     kallisto_index:     Value<Path?>            = ch_kallisto_index     // kallisto/index/, null when absent
-    indices:            Channel<Record>         = ch_indices            // one record per index/log actually built or supplied
+    indices:            Channel<Tuple>          = ch_indices            // (kind, file): one per index/log actually built or supplied
 }

@@ -11,8 +11,8 @@ process BBMAP_BBSPLIT {
         'community.wave.seqera.io/library/bbmap_pigz:07416fe99b090fa9' }"
 
     input:
-    record(
-        meta:             Record,
+    tuple(
+        meta:             Map,
         reads:            List<Path>,
         index:            Path?,
         primary_ref:      Path?,
@@ -25,13 +25,14 @@ process BBMAP_BBSPLIT {
     stageAs index, 'input_index'
 
     output:
-    record(
-        meta:               meta,
-        index:              file('bbsplit_index', optional: true),
-        reads:              files('*primary*fastq.gz', optional: true).toSorted { f -> f.name },
-        other_genome_reads: files('*fastq.gz', optional: true).findAll { f -> !f.name.contains('primary') }.toSorted { f -> f.name },
-        stats:              file('*txt', optional: true),
-        log:                file('*.log', optional: true)
+    // (meta, index, reads, other_genome_reads, stats, log)
+    tuple(
+        meta,
+        file('bbsplit_index', optional: true),
+        files('*primary*fastq.gz', optional: true).toSorted { f -> f.name },
+        files('*fastq.gz', optional: true).findAll { f -> !f.name.contains('primary') }.toSorted { f -> f.name },
+        file('*txt', optional: true),
+        file('*.log', optional: true)
     )
 
     topic:

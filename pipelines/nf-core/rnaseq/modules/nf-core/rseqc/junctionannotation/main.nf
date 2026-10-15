@@ -10,23 +10,24 @@ process RSEQC_JUNCTIONANNOTATION {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path,
         bed:  Path
     )
 
     output:
-    record(
-        meta:         meta,
-        bed:          file("*.junction.bed", optional: true),
-        interact_bed: file("*.Interact.bed", optional: true),
-        xls:          file("*.xls"),
-        pdf:          file("*junction.pdf", optional: true),
-        events_pdf:   file("*events.pdf", optional: true),
-        rscript:      file("*.r"),
-        log:          file("*.log")
+    // (meta, bed, interact_bed, xls, pdf, events_pdf, rscript, log)
+    tuple(
+        meta,
+        file("*.junction.bed", optional: true),
+        file("*.Interact.bed", optional: true),
+        file("*.xls"),
+        file("*junction.pdf", optional: true),
+        file("*events.pdf", optional: true),
+        file("*.r"),
+        file("*.log")
     )
 
     topic:

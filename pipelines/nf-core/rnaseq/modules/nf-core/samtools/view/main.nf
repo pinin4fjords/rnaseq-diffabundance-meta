@@ -10,8 +10,8 @@ process SAMTOOLS_VIEW {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta:         Record,
+    tuple(
+        meta:         Map,
         bam:          Path,
         bai:          Path?,
         fasta:        Path?,
@@ -22,12 +22,13 @@ process SAMTOOLS_VIEW {
     )
 
     output:
-    record(
-        meta:             meta,
-        bam:              file("${prefix}.{bam,cram,sam}", optional: true),
-        bai:              file("${prefix}.{bam,cram,sam}.{bai,csi,crai}", optional: true),
-        unselected:       file("${prefix}.unselected.{bam,cram,sam}", optional: true),
-        unselected_index: file("${prefix}.unselected.{bam,cram,sam}.{csi,crai}", optional: true)
+    // (meta, bam, bai, unselected, unselected_index)
+    tuple(
+        meta,
+        file("${prefix}.{bam,cram,sam}", optional: true),
+        file("${prefix}.{bam,cram,sam}.{bai,csi,crai}", optional: true),
+        file("${prefix}.unselected.{bam,cram,sam}", optional: true),
+        file("${prefix}.unselected.{bam,cram,sam}.{csi,crai}", optional: true)
     )
 
     topic:
