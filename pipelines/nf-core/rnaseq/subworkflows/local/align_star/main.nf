@@ -7,8 +7,6 @@ include { SENTIEON_STARALIGN as SENTIEON_STAR_ALIGN } from '../../../modules/nf-
 include { PARABRICKS_RNAFQ2BAM as PARABRICKS_RNA_FQ2BAM } from '../../../modules/nf-core/parabricks/rnafq2bam/main'
 include { STAR_ALIGN                                } from '../../../modules/nf-core/star/align'
 include { BAM_SORT_STATS_SAMTOOLS                   } from '../../nf-core/bam_sort_stats_samtools'
-include { SortStatsArgs                         } from '../../nf-core/bam_sort_stats_samtools'
-include { ReadsInput; StarAligned; StarAlignResult; Bam } from '../../../modules/nf-core/types'
 
 
 //
@@ -29,7 +27,7 @@ def getStarPercentMapped(_params, align_log) {
 
 workflow ALIGN_STAR {
     take:
-    ch_samples: Channel<ReadsInput>
+    ch_samples // channel: record(meta, reads)
     index: Value<Path>
     gtf: Value<Path?>
     star_ignore_sjdbgtf: Boolean // when using pre-built STAR indices do not re-extract and use splice junctions from the GTF file
@@ -38,20 +36,20 @@ workflow ALIGN_STAR {
     use_sentieon_star: Boolean // whether star alignment is accelerated with Sentieon
     use_parabricks_star: Boolean // whether star alignment (and mark duplicates) is accelerated with Parabricks
     skip_markduplicates: Boolean // whether to skip marking duplicates
-    tool_args: SortStatsArgs // the samtools index options, forwarded
+    tool_args: Record // the samtools index options, forwarded
 
     main:
 
     //
     // Map reads with STAR
     //
-    def ch_star_out: Channel<StarAlignResult>
+    def ch_star_out
     if (use_sentieon_star) {
-        ch_star_out = SENTIEON_STAR_ALIGN(ch_samples, index, gtf, star_ignore_sjdbgtf)
+        ch_star_out = SENTIEON_STAR_ALIGN(ch_samples.combine(index: index, gtf: gtf, star_ignore_sjdbgtf: star_ignore_sjdbgtf))
     } else if (use_parabricks_star) {
-        ch_star_out = PARABRICKS_RNA_FQ2BAM(ch_samples, fasta, index, true, !skip_markduplicates)
+        ch_star_out = PARABRICKS_RNA_FQ2BAM(ch_samples.combine(fasta: fasta, index: index, qc_metrics: true, mark_duplicates: !skip_markduplicates))
     } else {
-        ch_star_out = STAR_ALIGN(ch_samples, index, gtf, star_ignore_sjdbgtf)
+        ch_star_out = STAR_ALIGN(ch_samples.combine(index: index, gtf: gtf, star_ignore_sjdbgtf: star_ignore_sjdbgtf))
     }
 
     // A run that produced no BAM drops out of the downstream channels.
@@ -60,12 +58,12 @@ workflow ALIGN_STAR {
     //
     // Sort, index BAM file and run samtools stats, flagstat and idxstats
     //
-    def ch_sorted: Channel<Bam> = BAM_SORT_STATS_SAMTOOLS(ch_star, fasta, fai, tool_args)
+    def ch_sorted = BAM_SORT_STATS_SAMTOOLS(ch_star, fasta, fai, tool_args)
 
-    ch_star_sorted = ch_star.join(ch_sorted, by: 'id', remainder: true)
+    ch_star_sorted = ch_star.join(ch_sorted, by: 'meta', remainder: true)
     ch_star_sorted.subscribe { r ->
         if( r.star == null || r.samtools == null ) {
-            error "Sample '${r.id}' is missing its STAR sorted BAM result"
+            error "Sample '${r.meta.id}' is missing its STAR sorted BAM result"
         }
     }
     ch_results = ch_star_sorted

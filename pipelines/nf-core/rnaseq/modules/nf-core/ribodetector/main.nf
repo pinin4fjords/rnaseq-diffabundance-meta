@@ -1,22 +1,7 @@
 nextflow.enable.types = true
 
-record RibodetectorInput {
-    id:     String
-    meta:   Map
-    reads:  List<Path>
-    length: Integer
-    gpu:    Boolean
-}
-
-record RibodetectorResult {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    log:   Path
-}
-
 process RIBODETECTOR {
-	tag "$sample.meta.id"
+	tag "$meta.id"
 	label 'process_medium'
 
 	conda "${ task.accelerator ? "${moduleDir}/environment.gpu.yml" : "${moduleDir}/environment.yml" }"
@@ -25,15 +10,19 @@ process RIBODETECTOR {
         (task.accelerator ? 'community.wave.seqera.io/library/ribodetector_pytorch-gpu_cuda-version:fa9183da731515ea' : 'community.wave.seqera.io/library/ribodetector:0.3.3--ad3d7071e408b502') }"
 
 	input:
-	sample: RibodetectorInput
+	record(
+		meta:   Record,
+		reads:  List<Path>,
+		length: Integer,
+		gpu:    Boolean
+	)
 
 	output:
 	record(
-		id:    sample.id,
-		meta:  sample.meta,
+		meta:  meta,
 		reads: files('*.nonrna*.fastq.gz').toSorted { f -> f.name },
 		log:   file('*.log')
-	) as RibodetectorResult
+	)
 
 	topic:
 	tuple(task.process, 'ribodetector', eval('ribodetector --version | sed "s/ribodetector //"')) >> 'versions'
@@ -41,16 +30,16 @@ process RIBODETECTOR {
 
 	script:
 	def args = task.ext.args ?: ''
-	def prefix = task.ext.prefix ?: "${sample.meta.id}"
+	def prefix = task.ext.prefix ?: "${meta.id}"
 	ribodetector_bin = task.accelerator ? "ribodetector" : "ribodetector_cpu"
 	ribodetector_mem = task.accelerator ? "-m ${task.memory.toGiga()}" : ""
-	output = sample.meta.single_end ? "${prefix}.nonrna.fastq.gz" : "${prefix}.nonrna.1.fastq.gz ${prefix}.nonrna.2.fastq.gz"
+	output = meta.single_end ? "${prefix}.nonrna.fastq.gz" : "${prefix}.nonrna.1.fastq.gz ${prefix}.nonrna.2.fastq.gz"
 
 	"""
 	${ribodetector_bin} \\
-		-i ${sample.reads.join(' ')} \\
+		-i ${reads.join(' ')} \\
 		-o ${output} \\
-		-l ${sample.length} \\
+		-l ${length} \\
 		-t ${task.cpus} \\
 		--log ${prefix}.log \\
 		${ribodetector_mem} \\
@@ -59,7 +48,7 @@ process RIBODETECTOR {
 
 	stub:
 	def args = task.ext.args ?: ''
-	def prefix = task.ext.prefix ?: "${sample.meta.id}"
+	def prefix = task.ext.prefix ?: "${meta.id}"
 
 	"""
 	echo $args

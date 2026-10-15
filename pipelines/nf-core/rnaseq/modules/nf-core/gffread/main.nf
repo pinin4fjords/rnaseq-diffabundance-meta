@@ -1,22 +1,7 @@
 nextflow.enable.types = true
 
-record GffreadInput {
-    id:   String
-    meta: Map
-    gff:  Path
-}
-
-record GffreadResult {
-    id:    String
-    meta:  Map
-    gtf:   Path?
-    gff:   Path?
-    fasta: Path?
-    bed:   Path?
-}
-
 process GFFREAD {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -25,35 +10,37 @@ process GFFREAD {
         'quay.io/biocontainers/gffread:0.12.7--hdcf5f25_4' }"
 
     input:
-    sample: GffreadInput
-    fasta: Path?
+    record(
+        meta:  Record,
+        gff:   Path,
+        fasta: Path?
+    )
 
     output:
     record(
-        id:    sample.id,
-        meta:  sample.meta,
+        meta:  meta,
         gtf:   file('*.gtf', optional: true),
         gff:   file('*.gff3', optional: true),
         fasta: file('*.fasta', optional: true),
         bed:   file('*.bed', optional: true)
-    ) as GffreadResult
+    )
 
     topic:
     tuple(task.process, 'gffread', eval('gffread --version 2>&1')) >> 'versions'
 
     script:
     def args        = task.ext.args             ?: ''
-    def prefix      = task.ext.prefix           ?: "${sample.meta.id}"
+    def prefix      = task.ext.prefix           ?: "${meta.id}"
     def extension   = args.contains("--bed")    ? 'bed' : ( args.contains("-T")       ? 'gtf' : ( ( ['-w', '-x', '-y' ].any { flag -> args.contains(flag) } ) ? 'fasta' : 'gff3' ) )
     def fasta_arg   = fasta                     ? "-g $fasta" : ''
     def output_name = "${prefix}.${extension}"
     def output      = extension == "fasta"      ? "$output_name" : "-o $output_name"
     def args_sorted = args.replaceAll(/(.*)(-[wxy])(.*)/, '$1 $3 $2').trim()
     // args_sorted  = Move '-w', '-x', and '-y' to the end of the args string as gffread expects the file name after these parameters
-    if ( "$output_name" in [ "$sample.gff", "$fasta" ] ) error "Input and output names are the same, use \"task.ext.prefix\" to disambiguate!"
+    if ( "$output_name" in [ "$gff", "$fasta" ] ) error "Input and output names are the same, use \"task.ext.prefix\" to disambiguate!"
     """
     gffread \\
-        $sample.gff \\
+        $gff \\
         $fasta_arg \\
         $args_sorted \\
         $output
@@ -61,10 +48,10 @@ process GFFREAD {
 
     stub:
     def args        = task.ext.args             ?: ''
-    def prefix      = task.ext.prefix           ?: "${sample.meta.id}"
+    def prefix      = task.ext.prefix           ?: "${meta.id}"
     def extension   = args.contains("--bed")    ? 'bed' : ( args.contains("-T")       ? 'gtf' : ( ( ['-w', '-x', '-y' ].any { flag -> args.contains(flag) } ) ? 'fasta' : 'gff3' ) )
     def output_name = "${prefix}.${extension}"
-    if ( "$output_name" in [ "$sample.gff", "$fasta" ] ) error "Input and output names are the same, use \"task.ext.prefix\" to disambiguate!"
+    if ( "$output_name" in [ "$gff", "$fasta" ] ) error "Input and output names are the same, use \"task.ext.prefix\" to disambiguate!"
     """
     touch $output_name
     """

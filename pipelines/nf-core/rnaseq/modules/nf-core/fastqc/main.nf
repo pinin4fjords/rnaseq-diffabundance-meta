@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { ReadsInput } from '../types'
-
-record FastqcResult {
-    id:   String
-    meta: Map
-    html: List<Path>
-    zip:  List<Path>
-}
-
 process FASTQC {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -19,30 +10,32 @@ process FASTQC {
         : 'quay.io/biocontainers/fastqc:0.12.1--hdfd78af_0'}"
 
     input:
-    sample: ReadsInput
+    record(
+        meta:  Record,
+        reads: List<Path>
+    )
 
     stage:
-    stageAs sample.reads, '?/*'
+    stageAs reads, '?/*'
 
     output:
     record(
-        id:   sample.id,
-        meta: sample.meta,
+        meta: meta,
         html: files('*.html').toSorted { f -> f.name },
         zip:  files('*.zip').toSorted { f -> f.name }
-    ) as FastqcResult
+    )
 
     topic:
     tuple(task.process, 'fastqc', eval('fastqc --version | sed "/FastQC v/!d; s/.*v//"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     // New names for the symlinks made in the bash while loop below
-    def new_names = sample.reads.size() == 1
-        ? ["${prefix}.${sample.reads[0].extension}"]
-        : sample.reads.withIndex().collect { entry, index -> "${prefix}_${index + 1}.${entry.extension}" }.toList()
-    def rename_to = sample.reads.withIndex().collect { entry, index -> "${entry} ${new_names[index]}" }.join(' ')
+    def new_names = reads.size() == 1
+        ? ["${prefix}.${reads[0].extension}"]
+        : reads.withIndex().collect { entry, index -> "${prefix}_${index + 1}.${entry.extension}" }.toList()
+    def rename_to = reads.withIndex().collect { entry, index -> "${entry} ${new_names[index]}" }.join(' ')
     def renamed_files = new_names.join(' ')
 
     // The total amount of allocated RAM by FastQC is equal to the number of threads defined (--threads) time the amount of RAM defined (--memory)
@@ -68,7 +61,7 @@ process FASTQC {
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.html
     touch ${prefix}.zip

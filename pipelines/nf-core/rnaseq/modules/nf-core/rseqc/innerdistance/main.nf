@@ -1,9 +1,7 @@
 nextflow.enable.types = true
 
-include { BamBaiInput; RseqcInnerDistance } from '../../types'
-
 process RSEQC_INNERDISTANCE {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -12,30 +10,33 @@ process RSEQC_INNERDISTANCE {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    sample: BamBaiInput
-    bed: Path
+    record(
+        meta: Record,
+        bam:  Path,
+        bai:  Path,
+        bed:  Path
+    )
 
     output:
     record(
-        id:       sample.id,
-        meta:     sample.meta,
+        meta:     meta,
         distance: file("*distance.txt"),
         freq:     file("*freq.txt", optional: true),
         mean:     file("*mean.txt", optional: true),
         pdf:      file("*.pdf", optional: true),
         rscript:  file("*.r", optional: true)
-    ) as RseqcInnerDistance
+    )
 
     topic:
     tuple(task.process, 'rseqc', eval('inner_distance.py --version | sed "s/inner_distance.py //"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    if (!sample.meta.single_end) {
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    if (!meta.single_end) {
         """
         inner_distance.py \\
-            -i $sample.bam \\
+            -i $bam \\
             -r $bed \\
             -o $prefix \\
             $args \\
@@ -49,7 +50,7 @@ process RSEQC_INNERDISTANCE {
     }
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.inner_distance.txt
     touch ${prefix}.inner_distance_freq.txt

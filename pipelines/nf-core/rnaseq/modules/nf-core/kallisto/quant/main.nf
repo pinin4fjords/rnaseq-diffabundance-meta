@@ -1,23 +1,7 @@
 nextflow.enable.types = true
 
-
-record KallistoQuantInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
-record KallistoQuantSample {
-    id:        String
-    meta:      Map
-    quant_dir: Path
-    json_info: Path
-    log:       Path
-}
-
 process KALLISTO_QUANT {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
@@ -26,33 +10,36 @@ process KALLISTO_QUANT {
         'community.wave.seqera.io/library/kallisto:0.52.0--31c771060d82d25c' }"
 
     input:
-    sample: KallistoQuantInput
-    index: Path
-    gtf: Path?
-    chromosomes: Path?
-    fragment_length: Integer?
-    fragment_length_sd: Integer?
+    record(
+        meta:               Record,
+        reads:              List<Path>,
+        index:              Path,
+        gtf:                Path?,
+        chromosomes:        Path?,
+        fragment_length:    Integer?,
+        fragment_length_sd: Integer?,
+        args:               String?
+    )
 
     output:
     record(
-        id:        sample.id,
-        meta:      sample.meta,
+        meta:      meta,
         quant_dir: file("${prefix}"),
         json_info: file("*.run_info.json"),
         log:       file("*.log")
-    ) as KallistoQuantSample
+    )
 
     topic:
     tuple(task.process, 'kallisto', eval("kallisto version | sed 's/.*version //'")) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    prefix = task.ext.prefix ?: "${meta.id}"
     def gtf_input = gtf ? "--gtf ${gtf}" : ''
     def chromosomes_input = chromosomes ? "--chromosomes ${chromosomes}" : ''
 
     def single_end_params = ''
-    if (sample.meta.single_end) {
+    if (meta.single_end) {
         if (!("${fragment_length}" =~ /^\d+$/)) {
             error "fragment_length must be set and numeric for single-end data"
         }
@@ -69,16 +56,16 @@ process KALLISTO_QUANT {
             ${gtf_input} \\
             ${chromosomes_input} \\
             ${single_end_params} \\
-            ${args} \\
+            ${tool_args} \\
             -o $prefix \\
-            ${sample.reads.join(' ')} 2>| >(tee -a ${prefix}/kallisto_quant.log >&2)
+            ${reads.join(' ')} 2>| >(tee -a ${prefix}/kallisto_quant.log >&2)
 
     cp ${prefix}/kallisto_quant.log ${prefix}.log
     cp ${prefix}/run_info.json ${prefix}.run_info.json
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
 
     """
     mkdir -p $prefix

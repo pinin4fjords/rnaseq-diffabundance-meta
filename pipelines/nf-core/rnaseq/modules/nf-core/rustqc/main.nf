@@ -1,104 +1,5 @@
 nextflow.enable.types = true
 
-
-record RustqcInput {
-    id:   String
-    meta: Map
-    bam:  Path
-    bai:  Path
-    args: String?
-}
-
-record RustqcResult {
-    id:            String
-    meta:          Map
-    samtools:      RustqcSamtools
-    preseq:        RustqcPreseq
-    dupradar:      RustqcDupradar
-    featurecounts: RustqcFeaturecounts
-    biotype:       RustqcBiotype
-    rseqc:         RustqcRseqc
-    qualimap:      Path?
-    all_files:     Set<Path>
-}
-
-record RustqcSamtools {
-    stats:    Path?
-    flagstat: Path?
-    idxstats: Path?
-}
-
-record RustqcPreseq {
-    lc_extrap: Path?
-}
-
-record RustqcDupradar {
-    scatter2d:       Set<Path>
-    boxplot:         Set<Path>
-    hist:            Set<Path>
-    dupmatrix:       Path?
-    intercept_slope: Path?
-    multiqc:         Set<Path>
-}
-
-record RustqcFeaturecounts {
-    counts:  Path?
-    summary: Path?
-}
-
-record RustqcBiotype {
-    tsv:  Path?
-    mqc:  Path?
-    rrna: Path?
-}
-
-record RustqcTin {
-    txt: Path?
-    xls: Path?
-}
-
-record RustqcInnerdistance {
-    distance: Path?
-    freq:     Path?
-    mean:     Path?
-    summary:  Path?
-    plot:     Set<Path>
-    rscript:  Path?
-}
-
-record RustqcJunctionannotation {
-    bed:          Path?
-    interact_bed: Path?
-    xls:          Path?
-    log:          Path?
-    plot:         Set<Path>
-    rscript:      Path?
-}
-
-record RustqcJunctionsaturation {
-    summary: Path?
-    plot:    Set<Path>
-    rscript: Path?
-}
-
-record RustqcReadduplication {
-    seq_xls: Path?
-    pos_xls: Path?
-    plot:    Set<Path>
-    rscript: Path?
-}
-
-record RustqcRseqc {
-    bamstat:            Path?
-    inferexperiment:    Path?
-    readdistribution:   Path?
-    tin:                RustqcTin
-    innerdistance:      RustqcInnerdistance
-    junctionannotation: RustqcJunctionannotation
-    junctionsaturation: RustqcJunctionsaturation
-    readduplication:    RustqcReadduplication
-}
-
 // Flatten the tool subdirectories into the task root so every record field is a plain file,
 // keeping qualimap's own directory structure under the sample-named directory (the tool's
 // --outdir stays ${prefix} because featureCounts records it in its output header).
@@ -114,7 +15,7 @@ def flattenOutputs(prefix: String) {
 }
 
 process RUSTQC {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
@@ -123,13 +24,17 @@ process RUSTQC {
         : 'community.wave.seqera.io/library/rustqc:0.2.1--00df1502b490e005'}"
 
     input:
-    sample: RustqcInput
-    gtf: Path
+    record(
+        meta: Record,
+        bam:  Path,
+        bai:  Path,
+        gtf:  Path,
+        args: String?
+    )
 
     output:
     record(
-        id: sample.id,
-        meta: sample.meta,
+        meta: meta,
         samtools: record(
             stats:    file("*.stats", optional: true),
             flagstat: file("*.flagstat", optional: true),
@@ -193,29 +98,29 @@ process RUSTQC {
         ),
         qualimap:  file("${prefix}", optional: true),
         all_files: files("{*.txt,*.tsv,*.xls,*.log,*.stats,*.flagstat,*.idxstats,*.html,*_mqc.*,${prefix}/**}", optional: true)
-    ) as RustqcResult
+    )
 
     topic:
     tuple(task.process, 'rustqc', eval("rustqc --version 2>&1 | sed -n '1s/rustqc //; 1s/ .*//p'")) >> 'versions'
 
     script:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def args = task.ext.args ?: sample.args ?: ''
-    def paired = sample.meta.single_end ? '' : '--paired'
+    prefix = task.ext.prefix ?: "${meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    def paired = meta.single_end ? '' : '--paired'
     """
     rustqc rna \\
-        ${sample.bam} \\
+        ${bam} \\
         --gtf ${gtf} \\
         ${paired} \\
         --threads ${task.cpus} \\
         --outdir ${prefix} \\
         --sample-name ${prefix} \\
-        ${args}
+        ${tool_args}
     ${flattenOutputs(prefix)}
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     mkdir -p ${prefix}/{dupradar,featurecounts,preseq,samtools} \\
             ${prefix}/rseqc/{bam_stat,infer_experiment,read_duplication,read_distribution,junction_annotation,junction_saturation,inner_distance,tin} \\

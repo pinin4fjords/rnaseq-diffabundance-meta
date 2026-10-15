@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-
-record StarGenomegenerateInput {
-    id:    String
-    meta:  Map
-    fasta: Path
-    args:  String?
-}
-
-record StarGenomegenerateResult {
-    id:    String
-    meta:  Map
-    index: Path
-}
-
 process STAR_GENOMEGENERATE {
-    tag "$sample.fasta"
+    tag "$fasta"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
@@ -24,11 +10,15 @@ process STAR_GENOMEGENERATE {
         'community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4' }"
 
     input:
-    sample: StarGenomegenerateInput
-    gtf: Path?
+    record(
+        meta:  Record,
+        fasta: Path,
+        args:  String?,
+        gtf:   Path?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, index: file('star')) as StarGenomegenerateResult
+    record(meta: meta, index: file('star'))
 
     topic:
     tuple(task.process, 'star', eval('STAR --version | sed -e "s/STAR_//g"')) >> 'versions'
@@ -36,8 +26,8 @@ process STAR_GENOMEGENERATE {
     tuple(task.process, 'gawk', eval("gawk --version | sed -n '1{s/GNU Awk //;s/,.*//;p}'")) >> 'versions'
 
     script:
-    def args        = task.ext.args ?: sample.args ?: ''
-    def args_list   = args.tokenize()
+    def tool_args   = task.ext.args ?: args ?: ''
+    def args_list   = tool_args.tokenize()
     def memory      = task.memory ? "--limitGenomeGenerateRAM ${task.memory.toBytes() - 100000000}" : ''
     def include_gtf = gtf ? "--sjdbGTFfile $gtf" : ''
     if (args_list.contains('--genomeSAindexNbases')) {
@@ -46,27 +36,27 @@ process STAR_GENOMEGENERATE {
         STAR \\
             --runMode genomeGenerate \\
             --genomeDir star/ \\
-            --genomeFastaFiles $sample.fasta \\
+            --genomeFastaFiles $fasta \\
             $include_gtf \\
             --runThreadN $task.cpus \\
             $memory \\
-            $args
+            $tool_args
         """
     } else {
         """
-        samtools faidx $sample.fasta
-        NUM_BASES=`gawk '{sum = sum + \$2}END{if ((log(sum)/log(2))/2 - 1 > 14) {printf "%.0f", 14} else {printf "%.0f", (log(sum)/log(2))/2 - 1}}' ${sample.fasta}.fai`
+        samtools faidx $fasta
+        NUM_BASES=`gawk '{sum = sum + \$2}END{if ((log(sum)/log(2))/2 - 1 > 14) {printf "%.0f", 14} else {printf "%.0f", (log(sum)/log(2))/2 - 1}}' ${fasta}.fai`
 
         mkdir star
         STAR \\
             --runMode genomeGenerate \\
             --genomeDir star/ \\
-            --genomeFastaFiles $sample.fasta \\
+            --genomeFastaFiles $fasta \\
             $include_gtf \\
             --runThreadN $task.cpus \\
             --genomeSAindexNbases \$NUM_BASES \\
             $memory \\
-            $args
+            $tool_args
         """
     }
 

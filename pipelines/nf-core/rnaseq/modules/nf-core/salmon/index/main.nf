@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-record SalmonIndexInput {
-    id:               String
-    meta:             Map
-    transcript_fasta: Path
-    genome_fasta:     Path?
-    args:             String?
-}
-
-record SalmonIndexResult {
-    id:    String
-    meta:  Map
-    index: Path
-}
-
 process SALMON_INDEX {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label "process_medium"
 
     conda "${moduleDir}/environment.yml"
@@ -24,10 +10,15 @@ process SALMON_INDEX {
         'community.wave.seqera.io/library/salmon:2.7.0--74784226202c61b9' }"
 
     input:
-    sample: SalmonIndexInput
+    record(
+        meta:             Record,
+        transcript_fasta: Path,
+        genome_fasta:     Path?,
+        args:             String?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, index: file('salmon')) as SalmonIndexResult
+    record(meta: meta, index: file('salmon'))
 
     topic:
     tuple(task.process, 'salmon', eval("salmon --version | sed 's/salmon //'")) >> 'versions'
@@ -36,20 +27,20 @@ process SALMON_INDEX {
     task.ext.when == null || task.ext.when
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
+    def tool_args = task.ext.args ?: args ?: ''
     def decoys = ''
-    def fasta = "${sample.transcript_fasta}"
-    def genome = sample.genome_fasta ? "${sample.genome_fasta}" : ''
-    def transcripts = "${sample.transcript_fasta}"
-    if (sample.genome_fasta) {
-        if ("${sample.genome_fasta}".endsWith('.gz')) {
-            genome = "<(gunzip -c ${sample.genome_fasta})"
+    def fasta = "${transcript_fasta}"
+    def genome = genome_fasta ? "${genome_fasta}" : ''
+    def transcripts = "${transcript_fasta}"
+    if (genome_fasta) {
+        if ("${genome_fasta}".endsWith('.gz')) {
+            genome = "<(gunzip -c ${genome_fasta})"
         }
         decoys='-d decoys.txt'
         fasta='gentrome.fa'
     }
-    if ("${sample.transcript_fasta}".endsWith('.gz')) {
-        transcripts = "<(gunzip -c ${sample.transcript_fasta})"
+    if ("${transcript_fasta}".endsWith('.gz')) {
+        transcripts = "<(gunzip -c ${transcript_fasta})"
     }
     """
     if [ -n '$genome' ]; then
@@ -62,7 +53,7 @@ process SALMON_INDEX {
         --threads $task.cpus \\
         -t $fasta \\
         $decoys \\
-        $args \\
+        $tool_args \\
         -i salmon
     """
 

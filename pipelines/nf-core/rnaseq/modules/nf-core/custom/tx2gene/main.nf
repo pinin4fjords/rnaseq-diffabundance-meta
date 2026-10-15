@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { QuantsInput } from '../../types'
-
-record CustomTx2geneResult {
-    id:      String
-    meta:    Map
-    tx2gene: Path
-}
-
 process CUSTOM_TX2GENE {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -18,17 +10,20 @@ process CUSTOM_TX2GENE {
         'quay.io/biocontainers/python:3.10.4' }"
 
     input:
-    sample: QuantsInput
-    gtf: Path
-    quant_type: String
-    id: String
-    extra: String?
+    record(
+        meta:       Record,
+        quants:     List<Path>,
+        gtf:        Path,
+        quant_type: String,
+        id:         String,
+        extra:      String?
+    )
 
     stage:
-    stageAs sample.quants, 'quants/*'
+    stageAs quants, 'quants/*'
 
     output:
-    record(id: sample.id, meta: sample.meta, tx2gene: file("*tx2gene.tsv")) as CustomTx2geneResult
+    record(meta: meta, tx2gene: file("*tx2gene.tsv"))
 
     topic:
     file('versions.yml') >> 'versions'
@@ -37,7 +32,7 @@ process CUSTOM_TX2GENE {
     template 'tx2gene.py'
 
     stub:
-    def prefix = task.ext.prefix ?: sample.meta.id
+    def prefix = task.ext.prefix ?: meta.id
     """
     touch ${prefix}.tx2gene.tsv
 

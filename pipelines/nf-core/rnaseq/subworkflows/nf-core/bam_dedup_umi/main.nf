@@ -12,26 +12,18 @@ include { BAM_SORT_STATS_SAMTOOLS                                               
 
 include { UMITOOLS_PREPAREFORRSEM                                                                    } from '../../../modules/nf-core/umitools/prepareforrsem'
 include { SAMTOOLS_SORT                                                                              } from '../../../modules/nf-core/samtools/sort/main'
-include { Bam; UmiDedupBam } from '../../../modules/nf-core/types'
-include { SamtoolsSortResult } from '../../../modules/nf-core/samtools/sort/main'
-include { UmitoolsPrepareforrsemResult } from '../../../modules/nf-core/umitools/prepareforrsem/main'
-
-// The samtools index options that the UMI-tools and UMICollapse deduplication subworkflows read
-record DedupUmiArgs {
-    samtools_index: String?
-}
 
 workflow BAM_DEDUP_UMI {
     take:
-    ch_genome_bam: Channel<Bam>
+    ch_genome_bam: Channel<Record>
     fasta: Value<Path?>
     fai: Value<Path?>
     umi_dedup_tool: String // 'umicollapse' or 'umitools'
     umitools_dedup_stats: Boolean // whether to generate UMI-tools dedup stats
-    ch_transcriptome_bam: Channel<Bam> // records with transcriptome_bam set
+    ch_transcriptome_bam: Channel<Record> // records with transcriptome_bam set
     transcript_fasta: Value<Path?>
     umitools_dedup_primary_only: Boolean // whether to filter to primary alignments before dedup
-    tool_args: DedupUmiArgs // the samtools index options, forwarded
+    tool_args: Record // samtools_index: the samtools index options, forwarded
     umi_grouping_method: String? // UMI grouping method
     umi_separator: String? // UMI separator
 
@@ -45,7 +37,7 @@ workflow BAM_DEDUP_UMI {
     // Genome BAM deduplication
     if (umi_dedup_tool == "umicollapse") {
         ch_genome_dedup = BAM_DEDUP_STATS_SAMTOOLS_UMICOLLAPSE_GENOME(ch_genome_bam, tool_args, umi_grouping_method, umi_separator)
-            .map { r -> r + record(tsv: null) }
+            .map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools, tsv: null as Record?) }
     }
     else {
         ch_genome_dedup = BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS_GENOME(
@@ -58,7 +50,7 @@ workflow BAM_DEDUP_UMI {
         )
             .map { r ->
                 record(
-                    id: r.id, meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools,
+                    meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools,
                     tsv: r.tsv_edit_distance != null
                         ? record(edit_distance: r.tsv_edit_distance, per_umi: r.tsv_per_umi, umi_per_position: r.tsv_umi_per_position)
                         : null
@@ -72,8 +64,8 @@ workflow BAM_DEDUP_UMI {
     // to prepare for rsem or salmon
 
     // 1. Coordinate sort
-    def ch_coord_sorted: Channel<Bam> = BAM_SORT_STATS_SAMTOOLS(
-        ch_transcriptome_bam.map { r -> record(id: r.id, meta: r.meta, raw_bams: [r.transcriptome_bam]) },
+    ch_coord_sorted = BAM_SORT_STATS_SAMTOOLS(
+        ch_transcriptome_bam.map { r -> record(meta: r.meta, raw_bams: [r.transcriptome_bam]) },
         transcript_fasta,
         null,
         tool_args
@@ -82,7 +74,7 @@ workflow BAM_DEDUP_UMI {
     // 2. Transcriptome BAM deduplication
     if (umi_dedup_tool == "umicollapse") {
         ch_transcriptome_dedup = BAM_DEDUP_STATS_SAMTOOLS_UMICOLLAPSE_TRANSCRIPTOME(ch_coord_sorted, tool_args, umi_grouping_method, umi_separator)
-            .map { r -> r + record(tsv: null) }
+            .map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools, tsv: null as Record?) }
     }
     else {
         ch_transcriptome_dedup = BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS_TRANSCRIPTOME(
@@ -95,7 +87,7 @@ workflow BAM_DEDUP_UMI {
         )
             .map { r ->
                 record(
-                    id: r.id, meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools,
+                    meta: r.meta, bam: r.bam, bai: r.bai, log: r.log, samtools: r.samtools,
                     tsv: r.tsv_edit_distance != null
                         ? record(edit_distance: r.tsv_edit_distance, per_umi: r.tsv_per_umi, umi_per_position: r.tsv_umi_per_position)
                         : null
@@ -104,29 +96,29 @@ workflow BAM_DEDUP_UMI {
     }
 
     // 3. Restore name sorting
-    def ch_name_sorted: Channel<SamtoolsSortResult> = SAMTOOLS_SORT(
-        ch_transcriptome_dedup.map { r -> record(id: r.id, meta: r.meta, raw_bams: [r.bam]) },
-        fasta,
-        fai,
-        '',
+    ch_name_sorted = SAMTOOLS_SORT(
+        ch_transcriptome_dedup
+            .map { r -> record(meta: r.meta, raw_bams: [r.bam]) }
+            .combine(fasta: fasta, fai: fai, index_format: '')
     )
         .filter { r -> r.bam != null }
 
     // 4. Run prepare_for_rsem.py on paired-end BAM files
     // This fixes paired-end reads in name sorted BAM files
     // See: https://github.com/nf-core/rnaseq/issues/828
-    def ch_prepared: Channel<UmitoolsPrepareforrsemResult> = UMITOOLS_PREPAREFORRSEM(ch_name_sorted.filter { r -> !r.meta.single_end })
+    ch_prepared = UMITOOLS_PREPAREFORRSEM(ch_name_sorted.filter { r -> !r.meta.single_end })
 
     // Only paired-end samples pass through UMITOOLS_PREPAREFORRSEM, so the remainder
     // join leaves `prepared` null for single-end samples.
     ch_transcriptome_part = ch_transcriptome_bam
-        .join(ch_coord_sorted.map { r -> record(id: r.id, coord_sorted: r) }, by: 'id')
-        .join(ch_transcriptome_dedup.map { r -> record(id: r.id, dedup: r) }, by: 'id')
-        .join(ch_name_sorted.map { r -> record(id: r.id, name_sorted: r) }, by: 'id')
-        .join(ch_prepared.map { r -> record(id: r.id, prepared: r) }, by: 'id', remainder: true)
+        .map { r -> record(meta: r.meta, transcriptome_bam: r.transcriptome_bam) }
+        .join(ch_coord_sorted.map { r -> record(meta: r.meta, coord_sorted: r) }, by: 'meta')
+        .join(ch_transcriptome_dedup.map { r -> record(meta: r.meta, dedup: r) }, by: 'meta')
+        .join(ch_name_sorted.map { r -> record(meta: r.meta, name_sorted: r) }, by: 'meta')
+        .join(ch_prepared.map { r -> record(meta: r.meta, prepared: r) }, by: 'meta', remainder: true)
         .map { r ->
             record(
-                id:                       r.id,
+                meta:                     r.meta,
                 transcriptomic_dedup_log: r.dedup.log,
                 prepare_for_rsem_log:     r.prepared?.log,
                 transcriptome_bam:        r.prepared?.bam ?: r.name_sorted.bam,
@@ -149,7 +141,6 @@ workflow BAM_DEDUP_UMI {
     ch_results = ch_genome_dedup
         .map { r ->
             record(
-                id:                r.id,
                 meta:              r.meta,
                 bam:               r.bam,
                 bai:               r.bai,
@@ -158,7 +149,7 @@ workflow BAM_DEDUP_UMI {
                 tsv:               r.tsv
             )
         }
-        .join(ch_transcriptome_part, by: 'id', remainder: true)
+        .join(ch_transcriptome_part, by: 'meta', remainder: true)
 
     emit:
     ch_results

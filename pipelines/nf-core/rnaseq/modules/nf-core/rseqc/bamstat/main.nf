@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { BamBaiInput } from '../../types'
-
-record RseqcBamstatResult {
-    id:      String
-    meta:    Map
-    bamstat: Path
-}
-
 process RSEQC_BAMSTAT {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -18,26 +10,30 @@ process RSEQC_BAMSTAT {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    sample: BamBaiInput
+    record(
+        meta: Record,
+        bam:  Path,
+        bai:  Path
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, bamstat: file("*.bam_stat.txt")) as RseqcBamstatResult
+    record(meta: meta, bamstat: file("*.bam_stat.txt"))
 
     topic:
     tuple(task.process, 'rseqc', eval('bam_stat.py --version | sed "s/bam_stat.py //"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     bam_stat.py \\
-        -i $sample.bam \\
+        -i $bam \\
         $args \\
         > ${prefix}.bam_stat.txt
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.bam_stat.txt
     """

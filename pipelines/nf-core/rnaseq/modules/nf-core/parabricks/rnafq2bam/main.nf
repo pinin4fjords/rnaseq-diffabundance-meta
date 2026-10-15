@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { StarAlignResult } from '../../types'
-
-record ParabricksRnafq2bamInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
 process PARABRICKS_RNAFQ2BAM {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_high'
     label 'process_gpu'
     // needed by the module to work properly can be removed when fixed upstream - see: https://github.com/nf-core/modules/issues/7226
@@ -19,16 +10,19 @@ process PARABRICKS_RNAFQ2BAM {
     container "nvcr.io/nvidia/clara/clara-parabricks:4.7.1-1"
 
     input:
-    sample: ParabricksRnafq2bamInput
-    fasta: Path
-    index: Path
-    qc_metrics: Boolean
-    mark_duplicates: Boolean
+    record(
+        meta:            Record,
+        reads:           List<Path>,
+        fasta:           Path,
+        index:           Path,
+        qc_metrics:      Boolean,
+        mark_duplicates: Boolean,
+        args:            String?
+    )
 
     output:
     record(
-        id:                 sample.id,
-        meta:               sample.meta,
+        meta:               meta,
         raw_bams:           files("${prefix}.bam", optional: true).toSorted { f -> f.name },
         bam_sorted:         file("${prefix}.sortedByCoord.out.bam", optional: true),
         bam_sorted_aligned: file("${prefix}.Aligned.sortedByCoord.out.bam", optional: true),
@@ -50,7 +44,7 @@ process PARABRICKS_RNAFQ2BAM {
             log_progress: file("${prefix}.Log.progress.out"),
             tab:          files('*.tab', optional: true).toSorted { f -> f.name }
         )
-    ) as StarAlignResult
+    )
 
     topic:
     tuple(task.process, 'parabricks', eval("pbrun version 2>&1 | grep -Po '(?<=^pbrun: ).*'")) >> 'versions'
@@ -60,10 +54,10 @@ process PARABRICKS_RNAFQ2BAM {
     if (workflow.profile.tokenize(',').intersect(['conda', 'mamba']).size() >= 1) {
         error("Parabricks module does not support Conda. Please use Docker / Singularity / Podman instead.")
     }
-    def args = task.ext.args ?: sample.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    prefix = task.ext.prefix ?: "${meta.id}"
 
-    def in_fq_command = sample.meta.single_end ? "--in-se-fq ${sample.reads.join(' ')}" : "--in-fq ${sample.reads.join(' ')}"
+    def in_fq_command = meta.single_end ? "--in-se-fq ${reads.join(' ')}" : "--in-fq ${reads.join(' ')}"
     def num_gpus = task.accelerator ? "--num-gpus ${task.accelerator.request}" : ''
 
     def qc_metrics_command = qc_metrics ? "--out-qc-metrics-dir ${prefix}_qc_metrics" : ""
@@ -82,7 +76,7 @@ process PARABRICKS_RNAFQ2BAM {
         ${num_gpus} \\
         ${qc_metrics_command} \\
         ${duplicate_metrics_command} \\
-        ${args}
+        ${tool_args}
     """
 
     stub:
@@ -90,7 +84,7 @@ process PARABRICKS_RNAFQ2BAM {
     if (workflow.profile.tokenize(',').intersect(['conda', 'mamba']).size() >= 1) {
         error("Parabricks module does not support Conda. Please use Docker / Singularity / Podman instead.")
     }
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     def qc_metrics_output = qc_metrics ? "mkdir ${prefix}_qc_metrics" : ""
     def duplicate_metrics_output = mark_duplicates ? "touch ${prefix}.duplicate-metrics.txt" : ""
     """

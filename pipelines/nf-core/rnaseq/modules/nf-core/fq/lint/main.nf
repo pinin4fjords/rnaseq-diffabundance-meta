@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-
-record FqLintInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
-record FqLintResult {
-    id:   String
-    meta: Map
-    lint: Path
-}
-
 process FQ_LINT {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -24,25 +10,29 @@ process FQ_LINT {
         'quay.io/biocontainers/fq:0.12.0--h9ee0642_0' }"
 
     input:
-    sample: FqLintInput
+    record(
+        meta:  Record,
+        reads: List<Path>,
+        args:  String?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, lint: file("*.fq_lint.txt")) as FqLintResult
+    record(meta: meta, lint: file("*.fq_lint.txt"))
 
     topic:
     tuple(task.process, 'fq', eval("fq lint --version | sed 's/fq-lint //; s/ .*//'")) >> 'versions'
 
     script:
-    def args   = task.ext.args ?: sample.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     fq lint \\
-        $args \\
-        ${sample.reads.join(' ')} > ${prefix}.fq_lint.txt
+        $tool_args \\
+        ${reads.join(' ')} > ${prefix}.fq_lint.txt
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.fq_lint.txt
     """

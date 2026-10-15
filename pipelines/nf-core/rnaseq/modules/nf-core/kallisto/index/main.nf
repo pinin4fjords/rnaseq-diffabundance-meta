@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-
-record KallistoIndexInput {
-    id:    String
-    meta:  Map
-    fasta: Path
-    args:  String?
-}
-
-record KallistoIndexResult {
-    id:    String
-    meta:  Map
-    index: Path
-}
-
 process KALLISTO_INDEX {
-    tag "$sample.fasta"
+    tag "$fasta"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -24,22 +10,26 @@ process KALLISTO_INDEX {
         'community.wave.seqera.io/library/kallisto:0.52.0--31c771060d82d25c' }"
 
     input:
-    sample: KallistoIndexInput
+    record(
+        meta:  Record,
+        fasta: Path,
+        args:  String?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, index: file('kallisto')) as KallistoIndexResult
+    record(meta: meta, index: file('kallisto'))
 
     topic:
     tuple(task.process, 'kallisto', eval('kallisto 2>&1 | head -1 | sed "s/^kallisto //; s/Usage.*//"')) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
+    def tool_args = task.ext.args ?: args ?: ''
     """
     kallisto \\
         index \\
-        $args \\
+        $tool_args \\
         -i kallisto \\
-        $sample.fasta
+        $fasta
     """
 
     stub:

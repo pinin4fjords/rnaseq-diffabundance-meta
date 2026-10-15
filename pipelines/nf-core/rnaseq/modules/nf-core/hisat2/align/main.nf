@@ -1,24 +1,7 @@
 nextflow.enable.types = true
 
-include { Hisat2Logs } from '../../types'
-
-record Hisat2AlignInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
-record Hisat2AlignResult {
-    id:       String
-    meta:     Map
-    raw_bams: List<Path>
-    unmapped: List<Path>
-    hisat2:   Hisat2Logs
-}
-
 process HISAT2_ALIGN {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
@@ -27,43 +10,46 @@ process HISAT2_ALIGN {
         : 'community.wave.seqera.io/library/hisat2_samtools:a0c9b8ccf8116a89'}"
 
     input:
-    sample: Hisat2AlignInput
-    index: Path
-    splicesites: Path?
-    save_unaligned: Boolean
+    record(
+        meta:           Record,
+        reads:          List<Path>,
+        args:           String?,
+        index:          Path,
+        splicesites:    Path?,
+        save_unaligned: Boolean
+    )
 
     output:
     record(
-        id:       sample.id,
-        meta:     sample.meta,
+        meta:     meta,
         raw_bams: files('*.bam').toSorted { f -> f.name },
         unmapped: files('*fastq.gz', optional: true).toSorted { f -> f.name },
         hisat2:   record(summary: file('*.log'))
-    ) as Hisat2AlignResult
+    )
 
     topic:
     tuple(task.process, 'hisat2', eval("hisat2 --version | sed -n '1s/.*version //p'")) >> 'versions'
     tuple(task.process, 'samtools', eval("samtools --version | sed -n '1s/samtools //p'")) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    def prefix = task.ext.prefix ?: "${meta.id}"
 
     def ss = "${splicesites}" ? "--known-splicesite-infile ${splicesites}" : ''
-    def rg = args.contains("--rg-id") ? "" : "--rg-id ${prefix} --rg SM:${prefix}"
-    if (sample.meta.single_end) {
+    def rg = tool_args.contains("--rg-id") ? "" : "--rg-id ${prefix} --rg SM:${prefix}"
+    if (meta.single_end) {
         def unaligned = save_unaligned ? "--un-gz ${prefix}.unmapped.fastq.gz" : ''
         """
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
         hisat2 \\
             -x \$INDEX \\
-            -U ${sample.reads.join(' ')} \\
+            -U ${reads.join(' ')} \\
             ${ss} \\
             --summary-file ${prefix}.hisat2.summary.log \\
             --threads ${task.cpus} \\
             ${rg} \\
             ${unaligned} \\
-            ${args} \\
+            ${tool_args} \\
             | samtools view -bS -F 4 -F 256 - > ${prefix}.bam
         """
     }
@@ -73,8 +59,8 @@ process HISAT2_ALIGN {
         INDEX=`find -L ./ -name "*.1.ht2*" | sed 's/\\.1.ht2.*\$//'`
         hisat2 \\
             -x \$INDEX \\
-            -1 ${sample.reads[0]} \\
-            -2 ${sample.reads[1]} \\
+            -1 ${reads[0]} \\
+            -2 ${reads[1]} \\
             ${ss} \\
             --summary-file ${prefix}.hisat2.summary.log \\
             --threads ${task.cpus} \\
@@ -82,7 +68,7 @@ process HISAT2_ALIGN {
             ${unaligned} \\
             --no-mixed \\
             --no-discordant \\
-            ${args} \\
+            ${tool_args} \\
             | samtools view -bS -F 4 -F 8 -F 256 - > ${prefix}.bam
 
         if [ -f ${prefix}.unmapped.fastq.1.gz ]; then
@@ -95,7 +81,7 @@ process HISAT2_ALIGN {
     }
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     def unaligned = save_unaligned ? "echo '' | gzip >  ${prefix}.unmapped_1.fastq.gz \n echo '' | gzip >  ${prefix}.unmapped_2.fastq.gz" : ''
     """
     ${unaligned}

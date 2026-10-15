@@ -1,20 +1,7 @@
 nextflow.enable.types = true
 
-include { RawBams } from '../../types'
-
-record SamtoolsSortResult {
-    id:   String
-    meta: Map
-    bam:  Path?
-    cram: Path?
-    sam:  Path?
-    bai:  Path?
-    csi:  Path?
-    crai: Path?
-}
-
 process SAMTOOLS_SORT {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -23,32 +10,34 @@ process SAMTOOLS_SORT {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    sample: RawBams
-    fasta: Path?
-    fai: Path?
-    index_format: String
+    record(
+        meta:         Record,
+        raw_bams:     List<Path>,
+        fasta:        Path?,
+        fai:          Path?,
+        index_format: String
+    )
 
     stage:
-    stageAs sample.raw_bams, '?/*'
+    stageAs raw_bams, '?/*'
 
     output:
     record(
-        id:   sample.id,
-        meta: sample.meta,
+        meta: meta,
         bam:  file("${prefix}.bam", optional: true),
         cram: file("${prefix}.cram", optional: true),
         sam:  file("${prefix}.sam", optional: true),
         bai:  file("${prefix}.{bam,cram,sam}.bai", optional: true),
         csi:  file("${prefix}.{bam,cram,sam}.csi", optional: true),
         crai: file("${prefix}.{bam,cram,sam}.crai", optional: true)
-    ) as SamtoolsSortResult
+    )
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     extension = args.contains("--output-fmt sam")
         ? "sam"
         : args.contains("--output-fmt cram")
@@ -65,7 +54,7 @@ process SAMTOOLS_SORT {
         output_file = "${prefix}.${extension}##idx##${prefix}.${extension}.${index_format}"
     }
     // A lone file arrives as a Path, which iterates over its name components.
-    def bam_names = sample.raw_bams instanceof Path ? "${sample.raw_bams}" : sample.raw_bams.join(' ')
+    def bam_names = raw_bams instanceof Path ? "${raw_bams}" : raw_bams.join(' ')
     def is_sam = bam_names.replaceAll(' .*', '').endsWith('.sam')
     if (index_format) {
         if (!(index_format in ['bai', 'csi', 'crai'])) {
@@ -95,7 +84,7 @@ process SAMTOOLS_SORT {
 
     stub:
     def args = task.ext.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     extension = args.contains("--output-fmt sam")
         ? "sam"
         : args.contains("--output-fmt cram")

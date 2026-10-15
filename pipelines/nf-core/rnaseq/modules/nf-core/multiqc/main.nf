@@ -1,26 +1,7 @@
 nextflow.enable.types = true
 
-record MultiqcInput {
-    id:             String
-    meta:           Map
-    multiqc_files:  List<Path>
-    multiqc_config: List<Path>
-    multiqc_logo:   Path?
-    replace_names:  Path?
-    sample_names:   Path?
-    args:           String?
-}
-
-record MultiqcReport {
-    id:     String
-    meta:   Map
-    report: Path
-    data:   Path
-    plots:  Path?
-}
-
 process MULTIQC {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -29,33 +10,40 @@ process MULTIQC {
         : 'community.wave.seqera.io/library/multiqc:1.35--c17fb751507e9dfc'}"
 
     input:
-    sample: MultiqcInput
+    record(
+        meta:           Record,
+        multiqc_files:  List<Path>,
+        multiqc_config: List<Path>,
+        multiqc_logo:   Path?,
+        replace_names:  Path?,
+        sample_names:   Path?,
+        args:           String?
+    )
 
     stage:
-    stageAs sample.multiqc_files, '?/*'
-    stageAs sample.multiqc_config, '?/*'
+    stageAs multiqc_files, '?/*'
+    stageAs multiqc_config, '?/*'
 
     // MultiQC must not push its version to the `versions` topic: its input depends on that topic, so the pipeline would hang forever
     output:
     record(
-        id:     sample.id,
-        meta:   sample.meta,
+        meta:   meta,
         report: file('*.html'),
         data:   file('*_data'),
         plots:  file('*_plots', optional: true)
-    ) as MultiqcReport
+    )
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
+    def tool_args = task.ext.args ?: args ?: ''
     def prefix = task.ext.prefix ? "--filename ${task.ext.prefix}.html" : ''
-    def config = sample.multiqc_config ? "--config ${sample.multiqc_config.join(' --config ')}" : ""
-    def logo = sample.multiqc_logo ? "--cl-config 'custom_logo: \"${sample.multiqc_logo}\"'" : ''
-    def replace = sample.replace_names ? "--replace-names ${sample.replace_names}" : ''
-    def samples = sample.sample_names ? "--sample-names ${sample.sample_names}" : ''
+    def config = multiqc_config ? "--config ${multiqc_config.join(' --config ')}" : ""
+    def logo = multiqc_logo ? "--cl-config 'custom_logo: \"${multiqc_logo}\"'" : ''
+    def replace = replace_names ? "--replace-names ${replace_names}" : ''
+    def samples = sample_names ? "--sample-names ${sample_names}" : ''
     """
     multiqc \\
         --force \\
-        ${args} \\
+        ${tool_args} \\
         ${config} \\
         ${prefix} \\
         ${logo} \\

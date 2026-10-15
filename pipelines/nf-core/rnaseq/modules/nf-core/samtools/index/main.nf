@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-
-record SamtoolsIndexInput {
-    id:   String
-    meta: Map
-    bam:  Path
-    args: String?
-}
-
-record SamtoolsIndexResult {
-    id:   String
-    meta: Map
-    bai:  Path
-}
-
 process SAMTOOLS_INDEX {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -24,30 +10,34 @@ process SAMTOOLS_INDEX {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    sample: SamtoolsIndexInput
+    record(
+        meta: Record,
+        bam:  Path,
+        args: String?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, bai: file('*.{bai,csi,crai}')) as SamtoolsIndexResult
+    record(meta: meta, bai: file('*.{bai,csi,crai}'))
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
+    def tool_args = task.ext.args ?: args ?: ''
     """
     samtools \\
         index \\
         -@ ${task.cpus} \\
-        ${args} \\
-        ${sample.bam}
+        ${tool_args} \\
+        ${bam}
     """
 
     stub:
-    def args = task.ext.args ?: ''
-    def extension = sample.bam.getExtension() == 'cram'
+    def tool_args = task.ext.args ?: ''
+    def extension = bam.getExtension() == 'cram'
         ? "crai"
-        : args.contains("-c") ? "csi" : "bai"
+        : tool_args.contains("-c") ? "csi" : "bai"
     """
-    touch ${sample.bam}.${extension}
+    touch ${bam}.${extension}
     """
 }

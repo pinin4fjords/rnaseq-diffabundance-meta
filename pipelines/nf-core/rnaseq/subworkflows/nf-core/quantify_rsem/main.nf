@@ -9,14 +9,11 @@ include { CUSTOM_RSEMMERGECOUNTS             } from '../../../modules/nf-core/cu
 include { SENTIEON_RSEMCALCULATEEXPRESSION   } from '../../../modules/nf-core/sentieon/rsemcalculateexpression'
 
 include { QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT } from '../quant_tximport_summarizedexperiment'
-include { ReadsInput; QuantMerged } from '../../../modules/nf-core/types'
-include { RsemMergeSample } from '../../../modules/nf-core/custom/rsemmergecounts/main'
-include { RsemQuantSample } from '../../../modules/nf-core/rsem/calculateexpression/main'
 
 workflow QUANTIFY_RSEM {
     take:
     samplesheet: Value<Path>
-    ch_samples: Channel<ReadsInput> // FASTQ or BAM files
+    ch_samples: Channel<Record> // FASTQ or BAM files
     index: Value<Path> // RSEM index
     gtf: Value<Path>
     gtf_id_attribute: String // GTF gene ID attribute
@@ -29,11 +26,11 @@ workflow QUANTIFY_RSEM {
     //
     // Quantify reads with RSEM
     //
-    def ch_rsem: Channel<RsemQuantSample>
+    def ch_rsem: Channel<Record>
     if (use_sentieon_star) {
-        ch_rsem = SENTIEON_RSEMCALCULATEEXPRESSION(ch_samples, index)
+        ch_rsem = SENTIEON_RSEMCALCULATEEXPRESSION(ch_samples.map { r -> record(meta: r.meta, reads: r.reads) }.combine(index: index))
     } else {
-        ch_rsem = RSEM_CALCULATEEXPRESSION(ch_samples, index)
+        ch_rsem = RSEM_CALCULATEEXPRESSION(ch_samples.map { r -> record(meta: r.meta, reads: r.reads) }.combine(index: index))
     }
 
     //
@@ -44,7 +41,7 @@ workflow QUANTIFY_RSEM {
     // check skips CUSTOM_RSEMMERGECOUNTS when there are no samples, since
     // collect emits [] rather than nothing on an empty channel.
     //
-    def ch_rsem_merge: Channel<RsemMergeSample>
+    def ch_rsem_merge: Channel<Record>
     if (skip_merge) {
         ch_rsem_merge = channel.empty()
     } else {
@@ -55,21 +52,20 @@ workflow QUANTIFY_RSEM {
                     rs.isEmpty()
                         ? []
                         : [ record(
-                            id: 'all_samples',
-                            meta: [id: 'all_samples'],
+                            meta: record(id: 'all_samples'),
                             genes: rs.collect { r -> r.counts_gene }.toSorted { f -> f.name },
                             isoforms: rs.collect { r -> r.counts_transcript }.toSorted { f -> f.name }
                         ) ]
                 }
-        ).map { r -> record(id: r.id, rsem_merge: r.rsem_merge) }
+        ).map { r -> record(meta: r.meta, rsem_merge: r.rsem_merge) }
     }
 
     //
     // Post-process quantifications with tximport and SummarizedExperiment
     //
-    def ch_quant_merged: Channel<QuantMerged> = QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT(
+    ch_quant_merged = QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT(
         samplesheet,
-        ch_rsem.map { r -> record(id: r.id, meta: r.meta, quants: [ r.counts_transcript ]) },
+        ch_rsem.map { r -> record(meta: r.meta, quants: [ r.counts_transcript ]) },
         gtf,
         gtf_id_attribute,
         gtf_extra_attribute,
@@ -79,7 +75,7 @@ workflow QUANTIFY_RSEM {
     )
 
     emit:
-    samples:    Channel<RsemQuantSample> = ch_rsem        // per sample
-    merged:     Channel<QuantMerged>     = ch_quant_merged // one row per sample under skip_merge, a single 'all_samples' row otherwise
-    rsem_merge: Channel<RsemMergeSample> = ch_rsem_merge  // a single 'all_samples' row; empty under skip_merge
+    samples:    Channel<Record> = ch_rsem        // per sample
+    merged:     Channel<Record> = ch_quant_merged // one row per sample under skip_merge, a single 'all_samples' row otherwise
+    rsem_merge: Channel<Record> = ch_rsem_merge  // a single 'all_samples' row; empty under skip_merge
 }

@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { BrackenResult } from '../../types'
-
-record BrackenInput {
-    id:     String
-    meta:   Map
-    report: Path
-    args:   String?
-}
-
 process BRACKEN_BRACKEN {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -19,36 +10,39 @@ process BRACKEN_BRACKEN {
         'community.wave.seqera.io/library/bracken:3.1--22a4e66ce04c5e01' }"
 
     input:
-    sample: BrackenInput
-    database: Path
+    record(
+        meta:     Record,
+        report:   Path,
+        args:     String?,
+        database: Path
+    )
 
     output:
     record(
-        id:        sample.id,
-        meta:      sample.meta,
+        meta:      meta,
         abundance: file(bracken_report),
         report:    file(bracken_kraken_style_report)
-    ) as BrackenResult
+    )
 
     topic:
     tuple(task.process, 'bracken', eval('bracken -v | cut -f2 -d"v"')) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    def prefix = task.ext.prefix ?: "${meta.id}"
     bracken_report = "${prefix}.tsv"
     bracken_kraken_style_report = "${prefix}.kraken2.report_bracken.txt"
     """
     bracken \\
-        ${args} \\
+        ${tool_args} \\
         -d '${database}' \\
-        -i '${sample.report}' \\
+        -i '${report}' \\
         -o '${bracken_report}' \\
         -w '${bracken_kraken_style_report}'
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     bracken_report = "${prefix}.tsv"
     bracken_kraken_style_report = "${prefix}.kraken2.report_bracken.txt"
     """

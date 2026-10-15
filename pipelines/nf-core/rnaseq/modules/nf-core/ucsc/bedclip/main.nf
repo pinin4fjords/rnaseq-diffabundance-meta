@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { BedgraphInput } from '../../types'
-
-record UcscBedclipResult {
-    id:       String
-    meta:     Map
-    bedgraph: Path
-}
-
 process UCSC_BEDCLIP {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -18,11 +10,14 @@ process UCSC_BEDCLIP {
         'quay.io/biocontainers/ucsc-bedclip:482--h0b57e2e_0' }"
 
     input:
-    sample: BedgraphInput
-    sizes: Path
+    record(
+        meta:     Record,
+        bedgraph: Path,
+        sizes:    Path
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, bedgraph: file("*.bedGraph")) as UcscBedclipResult
+    record(meta: meta, bedgraph: file("*.bedGraph"))
 
     topic:
     // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
@@ -30,17 +25,17 @@ process UCSC_BEDCLIP {
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     bedClip \\
         $args \\
-        $sample.bedgraph \\
+        $bedgraph \\
         $sizes \\
         ${prefix}.bedGraph
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.bedGraph
     """

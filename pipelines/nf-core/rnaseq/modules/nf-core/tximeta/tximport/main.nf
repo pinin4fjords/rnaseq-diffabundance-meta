@@ -1,23 +1,7 @@
 nextflow.enable.types = true
 
-include { QuantsInput } from '../../types'
-
-record TximetaTximportResult {
-    id:                        String
-    meta:                      Map
-    tpm_gene:                  Path
-    counts_gene:               Path
-    lengths_gene:              Path
-    counts_gene_length_scaled: Path
-    counts_gene_scaled:        Path
-    tpm_transcript:            Path
-    counts_transcript:         Path
-    lengths_transcript:        Path
-    tx2gene_augmented:         Path
-}
-
 process TXIMETA_TXIMPORT {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label "process_medium"
 
     conda "${moduleDir}/environment.yml"
@@ -26,17 +10,19 @@ process TXIMETA_TXIMPORT {
         'community.wave.seqera.io/library/bioconductor-tximeta_jq:78bccd386c46a07c' }"
 
     input:
-    sample: QuantsInput
-    tx2gene: Path
-    quant_type: String
+    record(
+        meta:       Record,
+        quants:     List<Path>,
+        tx2gene:    Path,
+        quant_type: String
+    )
 
     stage:
-    stageAs sample.quants, 'quants/*'
+    stageAs quants, 'quants/*'
 
     output:
     record(
-        id:                        sample.id,
-        meta:                      sample.meta,
+        meta:                      meta,
         tpm_gene:                  file("*gene_tpm.tsv"),
         counts_gene:               file("*gene_counts.tsv"),
         lengths_gene:              file("*gene_lengths.tsv"),
@@ -46,7 +32,7 @@ process TXIMETA_TXIMPORT {
         counts_transcript:         file("*transcript_counts.tsv"),
         lengths_transcript:        file("*transcript_lengths.tsv"),
         tx2gene_augmented:         file("*tx2gene_augmented.tsv")
-    ) as TximetaTximportResult
+    )
 
     topic:
     file('versions.yml') >> 'versions'
@@ -56,15 +42,15 @@ process TXIMETA_TXIMPORT {
 
     stub:
     """
-    touch ${sample.meta.id}.gene_tpm.tsv
-    touch ${sample.meta.id}.gene_counts.tsv
-    touch ${sample.meta.id}.gene_counts_length_scaled.tsv
-    touch ${sample.meta.id}.gene_counts_scaled.tsv
-    touch ${sample.meta.id}.gene_lengths.tsv
-    touch ${sample.meta.id}.transcript_tpm.tsv
-    touch ${sample.meta.id}.transcript_counts.tsv
-    touch ${sample.meta.id}.transcript_lengths.tsv
-    touch ${sample.meta.id}.tx2gene_augmented.tsv
+    touch ${meta.id}.gene_tpm.tsv
+    touch ${meta.id}.gene_counts.tsv
+    touch ${meta.id}.gene_counts_length_scaled.tsv
+    touch ${meta.id}.gene_counts_scaled.tsv
+    touch ${meta.id}.gene_lengths.tsv
+    touch ${meta.id}.transcript_tpm.tsv
+    touch ${meta.id}.transcript_counts.tsv
+    touch ${meta.id}.transcript_lengths.tsv
+    touch ${meta.id}.tx2gene_augmented.tsv
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

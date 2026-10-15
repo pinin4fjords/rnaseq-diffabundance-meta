@@ -9,10 +9,6 @@ include { SAMTOOLS_INDEX                           } from '../../../modules/nf-c
 include { SAMTOOLS_VIEW as SAMTOOLS_VIEW_PRIMARY   } from '../../../modules/nf-core/samtools/view'
 include { SAMTOOLS_INDEX as SAMTOOLS_INDEX_PRIMARY } from '../../../modules/nf-core/samtools/index/main'
 include { BAM_STATS_SAMTOOLS                       } from '../bam_stats_samtools/main'
-include { BamBaiInput; UmitoolsDedupBam } from '../../../modules/nf-core/types'
-include { SamtoolsIndexResult } from '../../../modules/nf-core/samtools/index/main'
-include { SamtoolsViewResult } from '../../../modules/nf-core/samtools/view/main'
-include { UmitoolsDedupResult } from '../../../modules/nf-core/umitools/dedup/main'
 
 //
 // UMI-tools dedup options
@@ -25,16 +21,12 @@ def umitoolsDedupArgs(grouping_method, umi_separator, meta) {
     ].join(' ').trim()
 }
 
-record UmitoolsDedupArgs {
-    samtools_index: String?
-}
-
 workflow BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS {
     take:
-    ch_bam_bai: Channel<BamBaiInput>
+    ch_bam_bai: Channel<Record>
     val_get_dedup_stats: Boolean
     val_primary_only: Boolean
-    tool_args: UmitoolsDedupArgs // samtools index options
+    tool_args: Record // samtools_index: samtools index options
     grouping_method: String? // UMI grouping method
     umi_separator: String? // UMI separator
 
@@ -44,36 +36,32 @@ workflow BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS {
     // Optionally filter to primary alignments before deduplication
     //
     if (val_primary_only) {
-        def ch_primary: Channel<SamtoolsViewResult> = SAMTOOLS_VIEW_PRIMARY(
-            ch_bam_bai,
-            null,
-            null,
-            null,
-            null,
-            '',
+        ch_primary = SAMTOOLS_VIEW_PRIMARY(
+            ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, fasta: null, fai: null, qname: null, bed: null, index_format: '') }
         ).filter { r -> r.bam != null }
 
-        ch_dedup_input = ch_primary.join(SAMTOOLS_INDEX_PRIMARY(ch_primary.map { r -> r + record(args: tool_args.samtools_index) }), by: 'id')
+        ch_dedup_input = ch_primary
+            .map { r -> record(meta: r.meta, bam: r.bam) }
+            .join(SAMTOOLS_INDEX_PRIMARY(ch_primary.map { r -> record(meta: r.meta, bam: r.bam, args: tool_args.samtools_index) }), by: 'meta')
     }
     else {
-        ch_dedup_input = ch_bam_bai
+        ch_dedup_input = ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai) }
     }
 
     //
     // UMI-tools dedup
     //
-    def ch_dedup: Channel<UmitoolsDedupResult> = UMITOOLS_DEDUP(
-        ch_dedup_input.map { r -> r + record(args: umitoolsDedupArgs(grouping_method, umi_separator, r.meta)) },
-        val_get_dedup_stats
+    ch_dedup = UMITOOLS_DEDUP(
+        ch_dedup_input.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, args: umitoolsDedupArgs(grouping_method, umi_separator, r.meta), get_output_stats: val_get_dedup_stats) }
     )
 
     //
     // Index BAM file and run samtools stats, flagstat and idxstats
     //
-    def ch_index: Channel<SamtoolsIndexResult> = SAMTOOLS_INDEX(ch_dedup.map { r -> r + record(args: tool_args.samtools_index) })
-    ch_indexed = ch_dedup.join(ch_index, by: 'id')
+    ch_index = SAMTOOLS_INDEX(ch_dedup.map { r -> record(meta: r.meta, bam: r.bam, args: tool_args.samtools_index) })
+    ch_indexed = ch_dedup.join(ch_index, by: 'meta')
 
-    ch_results = ch_indexed.join(BAM_STATS_SAMTOOLS(ch_indexed, null, null), by: 'id')
+    ch_results = ch_indexed.join(BAM_STATS_SAMTOOLS(ch_indexed, null, null), by: 'meta')
 
     emit:
     ch_results

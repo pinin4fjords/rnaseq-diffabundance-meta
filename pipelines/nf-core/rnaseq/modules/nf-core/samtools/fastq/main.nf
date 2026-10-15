@@ -1,18 +1,7 @@
 nextflow.enable.types = true
 
-include { BamInput } from '../../types'
-
-record SamtoolsFastqResult {
-    id:          String
-    meta:        Map
-    reads:       List<Path>
-    interleaved: Path?
-    singleton:   Path?
-    other:       Path?
-}
-
 process SAMTOOLS_FASTQ {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -21,28 +10,30 @@ process SAMTOOLS_FASTQ {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    sample: BamInput
-    interleave: Boolean
+    record(
+        meta:       Record,
+        bam:        Path,
+        interleave: Boolean
+    )
 
     output:
     record(
-        id:          sample.id,
-        meta:        sample.meta,
+        meta:        meta,
         reads:       files('*_{1,2}.fastq.gz', optional: true).toSorted { f -> f.name },
         interleaved: file('*_interleaved.fastq', optional: true),
         singleton:   file('*_singleton.fastq.gz', optional: true),
         other:       file('*_other.fastq.gz', optional: true)
-    ) as SamtoolsFastqResult
+    )
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def output = interleave && !sample.meta.single_end
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    def output = interleave && !meta.single_end
         ? "> ${prefix}_interleaved.fastq"
-        : sample.meta.single_end
+        : meta.single_end
             ? "-1 ${prefix}_1.fastq.gz -s ${prefix}_singleton.fastq.gz"
             : "-1 ${prefix}_1.fastq.gz -2 ${prefix}_2.fastq.gz -s ${prefix}_singleton.fastq.gz"
     """
@@ -52,15 +43,15 @@ process SAMTOOLS_FASTQ {
         ${args} \\
         --threads ${task.cpus - 1} \\
         -0 ${prefix}_other.fastq.gz \\
-        ${sample.bam} \\
+        ${bam} \\
         ${output}
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def output_command = interleave && !sample.meta.single_end
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    def output_command = interleave && !meta.single_end
         ? "touch ${prefix}_interleaved.fastq"
-        : sample.meta.single_end
+        : meta.single_end
             ? "echo | bgzip -c > ${prefix}_1.fastq.gz && echo | bgzip -c > ${prefix}_singleton.fastq.gz"
             : "echo | bgzip -c > ${prefix}_1.fastq.gz && echo | bgzip -c > ${prefix}_2.fastq.gz && echo | bgzip -c > ${prefix}_singleton.fastq.gz"
     def other_command = "echo | bgzip -c > ${prefix}_other.fastq.gz"
