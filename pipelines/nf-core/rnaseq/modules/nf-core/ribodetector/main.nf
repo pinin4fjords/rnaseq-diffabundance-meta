@@ -10,18 +10,19 @@ process RIBODETECTOR {
         (task.accelerator ? 'community.wave.seqera.io/library/ribodetector_pytorch-gpu_cuda-version:fa9183da731515ea' : 'community.wave.seqera.io/library/ribodetector:0.3.3--ad3d7071e408b502') }"
 
 	input:
-	record(
-		meta:   Record,
+	tuple(
+		meta:   Map,
 		reads:  List<Path>,
 		length: Integer,
 		gpu:    Boolean
 	)
 
 	output:
-	record(
-		meta:  meta,
-		reads: files('*.nonrna*.fastq.gz').toSorted { f -> f.name },
-		log:   file('*.log')
+	// (meta, reads, log)
+	tuple(
+	    meta,
+	    files('*.nonrna*.fastq.gz').toSorted { f -> f.name },
+	    file('*.log')
 	)
 
 	topic:

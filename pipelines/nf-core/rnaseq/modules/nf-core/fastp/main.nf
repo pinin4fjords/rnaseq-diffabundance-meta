@@ -10,8 +10,8 @@ process FASTP {
 :         'community.wave.seqera.io/library/fastp:1.3.6--4df8d6c11b471bde' }"
 
     input:
-    record(
-        meta:                 Record,
+    tuple(
+        meta:                 Map,
         reads:                List<Path>,
         adapter_fasta:        Path?,
         args:                 String?,
@@ -21,14 +21,15 @@ process FASTP {
     )
 
     output:
-    record(
-        meta:         meta,
-        reads:        files('*.fastp.fastq.gz', optional: true).toSorted { f -> f.name },
-        json:         file('*.json'),
-        html:         file('*.html'),
-        log:          file('*.log'),
-        reads_fail:   files('*.fail.fastq.gz', optional: true).toSorted { f -> f.name },
-        reads_merged: file('*.merged.fastq.gz', optional: true)
+    // (meta, reads, json, html, log, reads_fail, reads_merged)
+    tuple(
+        meta,
+        files('*.fastp.fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.json'),
+        file('*.html'),
+        file('*.log'),
+        files('*.fail.fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*.merged.fastq.gz', optional: true)
     )
 
     topic:

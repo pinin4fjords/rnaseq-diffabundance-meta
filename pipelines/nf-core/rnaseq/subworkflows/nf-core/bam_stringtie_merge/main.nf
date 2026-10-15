@@ -5,33 +5,39 @@ include { STRINGTIE_MERGE     } from '../../../modules/nf-core/stringtie/merge/m
 
 workflow BAM_STRINGTIE_MERGE {
     take:
-    ch_bams: Channel<Record>
+    ch_bams: Channel<Tuple> // (meta, bam, lrbam)
     mode: Value<List<String>>
     chrgtf: Value<Path?>
 
     main:
 
+    // (meta, transcript_gtf, abundance, coverage_gtf, ballgown)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_assemblies = STRINGTIE_STRINGTIE(
         ch_bams
-            .map { r -> record(meta: r.meta, bam: r.bam, lrbam: r.lrbam) }
-            .combine(mode: mode, annotation_gtf: chrgtf)
+            .map { t -> tuple(t) }
+            .combine(mode)
+            .combine(chrgtf)
     )
 
+    // (meta, gtf, assemblies), assemblies holding every STRINGTIE_STRINGTIE output tuple
     ch_to_merge = ch_assemblies
         .collect()
         .flatMap { assemblies ->
             assemblies.isEmpty() ? [] : [
-                record(
-                    meta:       record(id: 'stringtie_merge'),
-                    gtf:        assemblies.collect { r -> r.transcript_gtf }.toSorted { f -> f.name },
-                    assemblies: assemblies
+                tuple(
+                    [id: 'stringtie_merge'],
+                    assemblies.collect { _meta, transcript_gtf, _abundance, _coverage_gtf, _ballgown -> transcript_gtf }.toSorted { f -> f.name },
+                    assemblies
                 )
             ]
         }
 
-    ch_merged = STRINGTIE_MERGE(ch_to_merge.map { r -> record(meta: r.meta, gtf: r.gtf) }.combine(annotation_gtf: chrgtf))
+    // (meta, merged_gtf)
+    ch_merged = STRINGTIE_MERGE(ch_to_merge.map { meta, gtf, _assemblies -> tuple(meta, gtf) }.combine(chrgtf))
 
-    ch_results = ch_to_merge.join(ch_merged.map { r -> record(meta: r.meta, merged_gtf: r.merged_gtf) }, by: 'meta')
+    // (meta, gtf, assemblies, merged_gtf)
+    ch_results = ch_to_merge.join(ch_merged, by: 0)
 
     emit:
     ch_results

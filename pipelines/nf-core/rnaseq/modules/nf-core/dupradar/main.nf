@@ -10,22 +10,23 @@ process DUPRADAR {
         'community.wave.seqera.io/library/bioconductor-dupradar:1.38.0--831da16eb40a64ab' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         gtf:  Path
     )
 
     output:
-    record(
-        meta:            meta,
-        scatter2d:       file("*_duprateExpDens.pdf"),
-        boxplot:         file("*_duprateExpBoxplot.pdf"),
-        hist:            file("*_expressionHist.pdf"),
-        dupmatrix:       file("*_dupMatrix.txt"),
-        intercept_slope: file("*_intercept_slope.txt"),
-        multiqc:         files("*_mqc.txt").toSorted { f -> f.name },
-        session_info:    file("*.R_sessionInfo.log")
+    // (meta, scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc, session_info)
+    tuple(
+        meta,
+        file("*_duprateExpDens.pdf"),
+        file("*_duprateExpBoxplot.pdf"),
+        file("*_expressionHist.pdf"),
+        file("*_dupMatrix.txt"),
+        file("*_intercept_slope.txt"),
+        files("*_mqc.txt").toSorted { f -> f.name },
+        file("*.R_sessionInfo.log")
     )
 
     topic:

@@ -11,8 +11,8 @@ process SENTIEON_RSEMPREPAREREFERENCE {
         'community.wave.seqera.io/library/rsem_sentieon:3e4315fa0b636313' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         fasta: Path,
         gtf:   Path
     )
@@ -21,10 +21,11 @@ process SENTIEON_RSEMPREPAREREFERENCE {
     stageAs fasta, 'rsem/*'
 
     output:
-    record(
-        meta:             meta,
-        index:            file("rsem"),
-        transcript_fasta: file("*transcripts.fa")
+    // (meta, index, transcript_fasta)
+    tuple(
+        meta,
+        file("rsem"),
+        file("*transcripts.fa")
     )
 
     topic:

@@ -11,19 +11,20 @@ process UMICOLLAPSE {
         : 'quay.io/biocontainers/umicollapse:1.1.0--hdfd78af_0'}"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         args: String?,
         mode: String
     )
 
     output:
-    record(
-        meta:  meta,
-        bam:   file('*.bam', optional: true),
-        fastq: file('*dedup*fastq.gz', optional: true),
-        log:   file('*_UMICollapse.log')
+    // (meta, bam, fastq, log)
+    tuple(
+        meta,
+        file('*.bam', optional: true),
+        file('*dedup*fastq.gz', optional: true),
+        file('*_UMICollapse.log')
     )
 
     topic:

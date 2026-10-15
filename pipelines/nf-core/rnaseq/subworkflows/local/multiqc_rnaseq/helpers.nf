@@ -24,12 +24,11 @@ def workflowSummaryMultiqcYaml() {
 // MultiQC `--replace-names` lines: map each FASTQ simpleName to
 // '<id>_1' / '<id>_2' (or '<id>' for SE), skipping cases where the
 // simpleName already equals the sample ID (see #1341 / #1659).
-// `fastq_rows` is a list of record(meta, runs), runs being [ [ fastq_1, fastq_2? ], ... ].
+// `fastq_rows` is a list of (meta, runs) tuples, runs being [ [ fastq_1, fastq_2? ], ... ].
 //
 def multiqcNameReplacementLines(fastq_rows) {
     def lines = fastq_rows.collectMany { row ->
-        def meta  = row.meta
-        def reads = row.runs
+        def (meta, reads) = row
         def paired   = reads[0][1] as boolean
         def suffixes = paired ? ['_1', '_2'] : ['']
         def mappings = []
@@ -60,10 +59,12 @@ def multiqcSampleMergeYamlPattern(id, read) {
 // fixed-length lookbehind, so sample IDs ending in `_1` / `_2` aren't
 // wrongly collapsed.
 //
+// `samples` is a list of (meta, runs) tuples.
 def multiqcSampleMergeYaml(samples) {
     def pe_sample_ids = samples
-        .findAll { s -> !s.meta.single_end }
-        .collect { s -> s.meta.id as String }
+        .collect { s -> s[0] }
+        .findAll { meta -> !meta.single_end }
+        .collect { meta -> meta.id as String }
         .unique()
         .sort()
     if (!pe_sample_ids) return 'table_sample_merge: {}\n'
@@ -141,7 +142,7 @@ def strandSummaryCells(_meta, provided, status, salmon, rseqc) {
 // Build the MultiQC custom-content JSON for the strandedness summary
 // table by merging a static config template (parsed from
 // assets/strand_check_summary.yaml) with per-sample rows
-// emitted by classifyStrand. Column order is taken from the YAML
+// emitted by classifyStrand as (meta, provided, status, salmon, rseqc) tuples. Column order is taken from the YAML
 // header keyset so reordering columns in the asset reorders them in
 // the rendered table. Throws if a row emits a cell that is not
 // declared in the asset's headers block, so the data/config contract
@@ -152,14 +153,15 @@ def strandCheckSummaryYaml(static_config, rows) {
     // Sort by sample id so the merged output is deterministic regardless of
     // which sample finished RSeQC/Salmon first, and so the rendered MultiQC
     // table has a consistent default row order.
-    def data = rows.toSorted { row -> row.meta.id }.collectEntries { row ->
-        def raw = strandSummaryCells(row.meta, row.provided, row.status, row.salmon, row.rseqc)
+    def data = rows.toSorted { row -> row[0].id }.collectEntries { row ->
+        def (meta, provided, status, salmon, rseqc) = row
+        def raw = strandSummaryCells(meta, provided, status, salmon, rseqc)
         def unknown = raw.keySet() - header_keys
         if (unknown) error("strand_check_summary.yaml headers do not declare columns: ${unknown}")
 
         def cells = [:]  // follow header order, drop null cells
         header_keys.each { k -> if (raw[k] != null) cells[k] = raw[k] }
-        [ (row.meta.id): cells ]
+        [ (meta.id): cells ]
     }
     groovy.json.JsonOutput.prettyPrint(groovy.json.JsonOutput.toJson(static_config + [data: data]))
 }
@@ -191,9 +193,11 @@ def strandCheckCompositionYaml(static_config, rows) {
     // Sort by sample id so the merged output is deterministic regardless of
     // which sample finished RSeQC/Salmon first, and so the rendered MultiQC
     // bargraph has a consistent default sample order.
-    rows.toSorted { row -> row.meta.id }.each { row ->
-        if (row.rseqc)  rseqc_data[row.meta.id]  = strandCompositionMap(row.rseqc)
-        if (row.salmon) salmon_data[row.meta.id] = strandCompositionMap(row.salmon)
+    // rows are (meta, provided, status, salmon, rseqc) tuples from classifyStrand
+    rows.toSorted { row -> row[0].id }.each { row ->
+        def (meta, _provided, _status, salmon, rseqc) = row
+        if (rseqc)  rseqc_data[meta.id]  = strandCompositionMap(rseqc)
+        if (salmon) salmon_data[meta.id] = strandCompositionMap(salmon)
     }
     def datasets = []
     def labels   = []

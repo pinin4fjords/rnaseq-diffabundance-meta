@@ -10,8 +10,8 @@ process UMITOOLS_DEDUP {
         'community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81' }"
 
     input:
-    record(
-        meta:             Record,
+    tuple(
+        meta:             Map,
         bam:              Path,
         bai:              Path,
         args:             String?,
@@ -19,13 +19,14 @@ process UMITOOLS_DEDUP {
     )
 
     output:
-    record(
-        meta:                 meta,
-        bam:                  file("${prefix}.bam"),
-        log:                  file('*.log'),
-        tsv_edit_distance:    file('*edit_distance.tsv', optional: true),
-        tsv_per_umi:          file('*per_umi.tsv', optional: true),
-        tsv_umi_per_position: file('*per_position.tsv', optional: true)
+    // (meta, bam, log, tsv_edit_distance, tsv_per_umi, tsv_umi_per_position)
+    tuple(
+        meta,
+        file("${prefix}.bam"),
+        file('*.log'),
+        file('*edit_distance.tsv', optional: true),
+        file('*per_umi.tsv', optional: true),
+        file('*per_position.tsv', optional: true)
     )
 
     topic:

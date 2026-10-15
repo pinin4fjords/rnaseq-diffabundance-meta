@@ -9,13 +9,14 @@ process PREPROCESS_TRANSCRIPTS_FASTA_GENCODE {
         'nf-core/ubuntu:20.04' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         fasta: Path
     )
 
     output:
-    record(meta: meta, fasta: file('*.fa'))
+    // (meta, fasta)
+    tuple(meta, file('*.fa'))
 
     topic:
     tuple(task.process, 'sed', eval("sed --version 2>&1 | sed '1!d;s/^.*) //'")) >> 'versions'

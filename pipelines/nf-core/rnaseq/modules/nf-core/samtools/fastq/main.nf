@@ -10,19 +10,20 @@ process SAMTOOLS_FASTQ {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta:       Record,
+    tuple(
+        meta:       Map,
         bam:        Path,
         interleave: Boolean
     )
 
     output:
-    record(
-        meta:        meta,
-        reads:       files('*_{1,2}.fastq.gz', optional: true).toSorted { f -> f.name },
-        interleaved: file('*_interleaved.fastq', optional: true),
-        singleton:   file('*_singleton.fastq.gz', optional: true),
-        other:       file('*_other.fastq.gz', optional: true)
+    // (meta, reads, interleaved, singleton, other)
+    tuple(
+        meta,
+        files('*_{1,2}.fastq.gz', optional: true).toSorted { f -> f.name },
+        file('*_interleaved.fastq', optional: true),
+        file('*_singleton.fastq.gz', optional: true),
+        file('*_other.fastq.gz', optional: true)
     )
 
     topic:

@@ -12,7 +12,7 @@ include { QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT } from '../quant_tximport_summariz
 //
 // Salmon quant options: the library type is the given one if it is valid, else derived from the sample strandedness
 //
-def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Record) -> String {
+def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Map) -> String {
     def valid_libtypes = [ 'A', 'U', 'SF', 'SR', 'IS', 'IU', 'ISF', 'ISR', 'OS', 'OU', 'OSF', 'OSR', 'MS', 'MU', 'MSF', 'MSR' ]
     def lib_type = 'A'
     if (libtype) {
@@ -35,7 +35,7 @@ def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Record) -> Stri
 //
 // Kallisto quant options: the strandedness of the sample unless the extra options set one
 //
-def kallistoQuantArgs(extra_args: String?, meta: Record) -> String {
+def kallistoQuantArgs(extra_args: String?, meta: Map) -> String {
     def extra = extra_args ?: ''
     def strandedness = (extra.contains('--fr-stranded') || extra.contains('--rf-stranded')) ? '' :
         meta.strandedness == 'forward' ? '--fr-stranded' :
@@ -46,7 +46,7 @@ def kallistoQuantArgs(extra_args: String?, meta: Record) -> String {
 workflow QUANTIFY_PSEUDO_ALIGNMENT {
     take:
     samplesheet: Value<Path>
-    ch_samples: Channel<Record>
+    ch_samples: Channel<Tuple> // (meta, reads)
     index: Value<Path?>
     transcript_fasta: Value<Path?>
     gtf: Value<Path>
@@ -64,22 +64,31 @@ workflow QUANTIFY_PSEUDO_ALIGNMENT {
     //
     // Quantify and merge counts across samples
     //
-    def ch_salmon: Channel<Record>   = channel.empty()
-    def ch_kallisto: Channel<Record> = channel.empty()
+    // ch_salmon: (meta, quant_dir, json_info, lib_format_counts), ch_kallisto: (meta, quant_dir, json_info, log)
+    def ch_salmon: Channel<Tuple>   = channel.empty()
+    def ch_kallisto: Channel<Tuple> = channel.empty()
     if (pseudo_aligner == 'salmon') {
         ch_salmon = SALMON_QUANT(
             ch_samples
-                .map { r -> record(meta: r.meta, reads: r.reads, args: salmonQuantArgs(salmon_libtype, tool_args.salmon_quant, r.meta)) }
-                .combine(index: index, gtf: gtf, transcript_fasta: transcript_fasta)
+                .map { meta, reads -> tuple(meta, reads, salmonQuantArgs(salmon_libtype, tool_args.salmon_quant, meta)) }
+                .combine(index)
+                .combine(gtf)
+                .combine(transcript_fasta)
         )
     } else {
+        // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
         ch_kallisto = KALLISTO_QUANT(
             ch_samples
-                .map { r -> record(meta: r.meta, reads: r.reads, args: kallistoQuantArgs(tool_args.kallisto_quant, r.meta), chromosomes: null, fragment_length: kallisto_quant_fraglen, fragment_length_sd: kallisto_quant_fraglen_sd) }
-                .combine(index: index, gtf: gtf)
+                .map { t -> tuple(t) }
+                .combine(index)
+                .combine(gtf)
+                .map { meta, reads, index_dir, gtf_file ->
+                    tuple(meta, reads, index_dir, gtf_file, null, kallisto_quant_fraglen, kallisto_quant_fraglen_sd, kallistoQuantArgs(tool_args.kallisto_quant, meta))
+                }
         )
     }
-    def ch_quant_dirs = ch_salmon.mix(ch_kallisto).map { r -> record(meta: r.meta, quants: [ r.quant_dir ]) }
+    // (meta, quants)
+    def ch_quant_dirs = ch_salmon.mix(ch_kallisto).map { meta, quant_dir, _json_info, _log_or_counts -> tuple(meta, [ quant_dir ]) }
 
     //
     // Post-process quantifications with tximport and SummarizedExperiment
@@ -96,7 +105,11 @@ workflow QUANTIFY_PSEUDO_ALIGNMENT {
     )
 
     emit:
-    salmon:   Channel<Record> = ch_salmon        // per sample, when pseudo_aligner is salmon
-    kallisto: Channel<Record> = ch_kallisto      // per sample, when pseudo_aligner is kallisto
-    merged:   Channel<Record> = ch_quant_merged  // one row per sample under skip_merge, a single 'all_samples' row otherwise
+    // per sample, when pseudo_aligner is salmon: (meta, quant_dir, json_info, lib_format_counts)
+    salmon:   Channel<Tuple> = ch_salmon
+    // per sample, when pseudo_aligner is kallisto: (meta, quant_dir, json_info, log)
+    kallisto: Channel<Tuple> = ch_kallisto
+    // one row per sample under skip_merge, a single 'all_samples' row otherwise:
+    // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene)
+    merged:   Channel<Tuple> = ch_quant_merged
 }

@@ -10,8 +10,8 @@ process BEDTOOLS_GENOMECOV {
         : 'community.wave.seqera.io/library/bedtools_coreutils:a623c13f66d5262b'}"
 
     input:
-    record(
-        meta:      Record,
+    tuple(
+        meta:      Map,
         intervals: Path,
         scale:     Float,
         sizes:     Path?,
@@ -20,7 +20,8 @@ process BEDTOOLS_GENOMECOV {
     )
 
     output:
-    record(meta: meta, bedgraph: file("*.${extension}"))
+    // (meta, bedgraph)
+    tuple(meta, file("*.${extension}"))
 
     topic:
     tuple(task.process, 'bedtools', eval("bedtools --version | sed -e 's/bedtools v//g'")) >> 'versions'

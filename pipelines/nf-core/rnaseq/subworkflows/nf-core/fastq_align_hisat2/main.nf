@@ -5,7 +5,7 @@ include { BAM_SORT_STATS_SAMTOOLS } from '../bam_sort_stats_samtools/main'
 
 workflow FASTQ_ALIGN_HISAT2 {
     take:
-    ch_samples: Channel<Record> // meta, reads, args
+    ch_samples: Channel<Tuple> // (meta, reads, args)
     index: Value<Path>
     splicesites: Value<Path?>
     ch_fasta: Value<Path?>
@@ -17,20 +17,31 @@ workflow FASTQ_ALIGN_HISAT2 {
     //
     // Map reads with HISAT2
     //
+    // (meta, raw_bams, unmapped, hisat2_summary)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
     ch_hisat2 = HISAT2_ALIGN(
         ch_samples
-            .map { r -> record(meta: r.meta, reads: r.reads, args: r.args, save_unaligned: save_unaligned) }
-            .combine(index: index, splicesites: splicesites)
+            .map { t -> tuple(t) }
+            .combine(index)
+            .combine(splicesites)
+            .combine(channel.value(save_unaligned))
     )
 
     //
     // Sort, index BAM file and run samtools stats, flagstat and idxstats
     //
-    ch_sorted = BAM_SORT_STATS_SAMTOOLS(ch_hisat2, ch_fasta, ch_fai, tool_args)
+    // (meta, bam, bai, samtools(stats, flagstat, idxstats))
+    ch_sorted = BAM_SORT_STATS_SAMTOOLS(
+        ch_hisat2.map { meta, raw_bams, _unmapped, _hisat2_summary -> tuple(meta, raw_bams) },
+        ch_fasta,
+        ch_fai,
+        tool_args
+    )
 
+    // (meta, raw_bams, unmapped, hisat2_summary, aligner, bam, bai, samtools(stats, flagstat, idxstats))
     ch_results = ch_hisat2
-        .map { r -> r + record(aligner: 'hisat2') }
-        .join(ch_sorted, by: 'meta')
+        .map { meta, raw_bams, unmapped, hisat2_summary -> tuple(meta, raw_bams, unmapped, hisat2_summary, 'hisat2') }
+        .join(ch_sorted, by: 0)
 
     emit:
     ch_results

@@ -10,14 +10,15 @@ process SEQKIT_REPLACE {
         : 'community.wave.seqera.io/library/seqkit:2.13.0--05c0a96bf9fb2751'}"
 
     input:
-    record(
-        meta:    Record,
+    tuple(
+        meta:    Map,
         fastx:   Path,
         out_ext: String
     )
 
     output:
-    record(meta: meta, fastx: file("*.fast*"))
+    // (meta, fastx)
+    tuple(meta, file("*.fast*"))
 
     topic:
     tuple(task.process, 'seqkit', eval("seqkit version | sed 's/^.*v//'")) >> 'versions'

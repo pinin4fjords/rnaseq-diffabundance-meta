@@ -10,8 +10,8 @@ process CUSTOM_TX2GENE {
         'quay.io/biocontainers/python:3.10.4' }"
 
     input:
-    record(
-        meta:       Record,
+    tuple(
+        meta:       Map,
         quants:     List<Path>,
         gtf:        Path,
         quant_type: String,
@@ -23,7 +23,8 @@ process CUSTOM_TX2GENE {
     stageAs quants, 'quants/*'
 
     output:
-    record(meta: meta, tx2gene: file("*tx2gene.tsv"))
+    // (meta, tx2gene)
+    tuple(meta, file("*tx2gene.tsv"))
 
     topic:
     file('versions.yml') >> 'versions'

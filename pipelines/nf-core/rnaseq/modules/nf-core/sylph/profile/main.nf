@@ -10,14 +10,15 @@ process SYLPH_PROFILE {
         : 'quay.io/biocontainers/sylph:0.9.0--ha6fb395_0'}"
 
     input:
-    record(
-        meta:     Record,
+    tuple(
+        meta:     Map,
         reads:    List<Path>,
         database: List<Path>
     )
 
     output:
-    record(meta: meta, profile_out: file('*.tsv'))
+    // (meta, profile_out)
+    tuple(meta, file('*.tsv'))
 
     topic:
     tuple(task.process, 'sylph', eval('sylph -V | sed "s/sylph //g"')) >> 'versions'

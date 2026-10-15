@@ -300,16 +300,18 @@ workflow {
     def genome_gtf = getGenomeAttribute('gtf')
     def ch_gtf: Value<Path> = params.gtf != null ? params.gtf : genome_gtf != null ? channel.value(file(genome_gtf)) : ch_null
 
+    // (input, contrasts, matrix, feature_length_matrix, gtf)
     def ch_files = (params.input != null ? params.input : ch_null)
-        .map { input -> record(input: input) }
-        .combine(contrasts: params.contrasts != null ? params.contrasts : ch_null)
-        .combine(matrix: params.matrix != null ? params.matrix : ch_null)
-        .combine(feature_length_matrix: params.feature_length_matrix != null ? params.feature_length_matrix : ch_null)
-        .combine(gtf: ch_gtf)
+        .combine(params.contrasts != null ? params.contrasts : ch_null)
+        .combine(params.matrix != null ? params.matrix : ch_null)
+        .combine(params.feature_length_matrix != null ? params.feature_length_matrix : ch_null)
+        .combine(ch_gtf)
 
     def ch_paramsets = init.paramsets
     if (!params.paramsheet) {
-        ch_paramsets = ch_files.flatMap { files -> [ buildParamset(params, files) ] }
+        ch_paramsets = ch_files.flatMap { files ->
+            [ buildParamset(params, [input: files[0], contrasts: files[1], matrix: files[2], feature_length_matrix: files[3], gtf: files[4]]) ]
+        }
     }
 
     //
@@ -332,88 +334,88 @@ workflow {
     //
     // Build category channels for publishing
     //
-    ch_pub_preprocessing = abundance.affy_cel_files.map { item -> record(name: 'affy_cel_files', meta: item[0], files: item[1..-1]) }
-        .mix(abundance.affy_raw_expression.map        { meta, file -> record(name: 'affy_raw_expression', meta: meta, files: [file].flatten()) })
-        .mix(abundance.affy_norm_expression.map       { meta, file -> record(name: 'affy_norm_expression', meta: meta, files: [file].flatten()) })
-        .mix(abundance.affy_annotation.map            { meta, file -> record(name: 'affy_annotation', meta: meta, files: [file].flatten()) })
-        .mix(abundance.affy_raw_rds.map               { meta, file -> record(name: 'affy_raw_rds', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_raw.map                { meta, file -> record(name: 'proteus_raw', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_norm.map               { meta, file -> record(name: 'proteus_norm', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_plots.map              { meta, file -> record(name: 'proteus_plots', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_raw_rdata.map          { meta, file -> record(name: 'proteus_raw_rdata', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_norm_rdata.map         { meta, file -> record(name: 'proteus_norm_rdata', meta: meta, files: [file].flatten()) })
-        .mix(abundance.proteus_session_info.map       { meta, file -> record(name: 'proteus_session_info', meta: meta, files: [file].flatten()) })
-        .mix(abundance.geo_expression.map             { meta, file -> record(name: 'geo_expression', meta: meta, files: [file].flatten()) })
-        .mix(abundance.geo_annotation.map             { meta, file -> record(name: 'geo_annotation', meta: meta, files: [file].flatten()) })
-        .mix(abundance.geo_rds.map                    { meta, file -> record(name: 'geo_rds', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gtf_annotation.map             { meta, file -> record(name: 'gtf_annotation', meta: meta, files: [file].flatten()) })
+    ch_pub_preprocessing = abundance.affy_cel_files.map { item -> tuple('affy_cel_files', item[0], item[1..-1]) }
+        .mix(abundance.affy_raw_expression.map        { meta, file -> tuple('affy_raw_expression', meta, [file].flatten()) })
+        .mix(abundance.affy_norm_expression.map       { meta, file -> tuple('affy_norm_expression', meta, [file].flatten()) })
+        .mix(abundance.affy_annotation.map            { meta, file -> tuple('affy_annotation', meta, [file].flatten()) })
+        .mix(abundance.affy_raw_rds.map               { meta, file -> tuple('affy_raw_rds', meta, [file].flatten()) })
+        .mix(abundance.proteus_raw.map                { meta, file -> tuple('proteus_raw', meta, [file].flatten()) })
+        .mix(abundance.proteus_norm.map               { meta, file -> tuple('proteus_norm', meta, [file].flatten()) })
+        .mix(abundance.proteus_plots.map              { meta, file -> tuple('proteus_plots', meta, [file].flatten()) })
+        .mix(abundance.proteus_raw_rdata.map          { meta, file -> tuple('proteus_raw_rdata', meta, [file].flatten()) })
+        .mix(abundance.proteus_norm_rdata.map         { meta, file -> tuple('proteus_norm_rdata', meta, [file].flatten()) })
+        .mix(abundance.proteus_session_info.map       { meta, file -> tuple('proteus_session_info', meta, [file].flatten()) })
+        .mix(abundance.geo_expression.map             { meta, file -> tuple('geo_expression', meta, [file].flatten()) })
+        .mix(abundance.geo_annotation.map             { meta, file -> tuple('geo_annotation', meta, [file].flatten()) })
+        .mix(abundance.geo_rds.map                    { meta, file -> tuple('geo_rds', meta, [file].flatten()) })
+        .mix(abundance.gtf_annotation.map             { meta, file -> tuple('gtf_annotation', meta, [file].flatten()) })
 
-    ch_pub_differential = abundance.diff_results.map              { _key, meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
-        .mix(abundance.diff_results_filtered.map  { _key, meta, file -> record(name: 'results_filtered', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_normalised_matrix.map { meta, file -> record(name: 'normalised_matrix', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_variance_stabilised.map { meta, file -> record(name: 'variance_stabilised_matrix', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_size_factors.map      { meta, file -> record(name: 'size_factors', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_dispersion_plot.map   { meta, file -> record(name: 'dispersion_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_md_plot.map           { meta, file -> record(name: 'md_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_rdata.map             { meta, file -> record(name: 'rdata', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_session_info.map      { meta, file -> record(name: 'session_info', meta: meta, files: [file].flatten()) })
-        .mix(abundance.diff_annotated.map         { meta, file -> record(name: 'annotated', meta: meta, files: [file].flatten()) })
+    ch_pub_differential = abundance.diff_results.map              { _key, meta, file -> tuple('results', meta, [file].flatten()) }
+        .mix(abundance.diff_results_filtered.map  { _key, meta, file -> tuple('results_filtered', meta, [file].flatten()) })
+        .mix(abundance.diff_normalised_matrix.map { meta, file -> tuple('normalised_matrix', meta, [file].flatten()) })
+        .mix(abundance.diff_variance_stabilised.map { meta, file -> tuple('variance_stabilised_matrix', meta, [file].flatten()) })
+        .mix(abundance.diff_size_factors.map      { meta, file -> tuple('size_factors', meta, [file].flatten()) })
+        .mix(abundance.diff_dispersion_plot.map   { meta, file -> tuple('dispersion_plot', meta, [file].flatten()) })
+        .mix(abundance.diff_md_plot.map           { meta, file -> tuple('md_plot', meta, [file].flatten()) })
+        .mix(abundance.diff_rdata.map             { meta, file -> tuple('rdata', meta, [file].flatten()) })
+        .mix(abundance.diff_session_info.map      { meta, file -> tuple('session_info', meta, [file].flatten()) })
+        .mix(abundance.diff_annotated.map         { meta, file -> tuple('annotated', meta, [file].flatten()) })
 
-    ch_pub_functional = abundance.gsea_report_tsv.map          { meta, ref, target -> record(name: 'gsea_report_tsv', meta: meta, files: [ref, target].flatten()) }
-        .mix(abundance.gsea_report_html.map       { meta, ref, target -> record(name: 'gsea_report_html', meta: meta, files: [ref, target].flatten()) })
-        .mix(abundance.gsea_index_html.map        { meta, file -> record(name: 'gsea_index_html', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_heat_map_corr_plot.map { meta, file -> record(name: 'gsea_heat_map_corr_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_ranked_gene_list.map  { meta, file -> record(name: 'gsea_ranked_gene_list', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_sizes.map    { meta, file -> record(name: 'gsea_gene_set_sizes', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_histogram.map         { meta, file -> record(name: 'gsea_histogram', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_heatmap.map           { meta, file -> record(name: 'gsea_heatmap', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_pvalues_vs_nes_plot.map { meta, file -> record(name: 'gsea_pvalues_vs_nes_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_ranked_list_corr.map  { meta, file -> record(name: 'gsea_ranked_list_corr', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_butterfly_plot.map    { meta, file -> record(name: 'gsea_butterfly_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_tsv.map      { meta, file -> record(name: 'gsea_gene_set_tsv', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_html.map     { meta, file -> record(name: 'gsea_gene_set_html', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_heatmap.map  { meta, file -> record(name: 'gsea_gene_set_heatmap', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_enplot.map   { meta, file -> record(name: 'gsea_gene_set_enplot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_gene_set_dist.map     { meta, file -> record(name: 'gsea_gene_set_dist', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_snapshot.map          { meta, file -> record(name: 'gsea_snapshot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_archive.map           { meta, file -> record(name: 'gsea_archive', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gsea_rpt.map               { meta, file -> record(name: 'gsea_rpt', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_html.map        { meta, file -> record(name: 'gprofiler2_html', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_all_enrichment.map { meta, file -> record(name: 'gprofiler2_all_enrichment', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_sub_enrichment.map { meta, file -> record(name: 'gprofiler2_sub_enrichment', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_plot_png.map    { meta, file -> record(name: 'gprofiler2_plot_png', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_sub_plot.map    { meta, file -> record(name: 'gprofiler2_sub_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_rds.map         { meta, file -> record(name: 'gprofiler2_rds', meta: meta, files: [file].flatten()) })
-        .mix(abundance.gprofiler2_filtered_gmt.map { meta, file -> record(name: 'gprofiler2_filtered_gmt', meta: meta, files: [file].flatten()) })
-        .mix(abundance.decoupler_estimate.map     { meta, file -> record(name: 'decoupler_estimate', meta: meta, files: [file].flatten()) })
-        .mix(abundance.decoupler_pvals.map        { meta, file -> record(name: 'decoupler_pvals', meta: meta, files: [file].flatten()) })
-        .mix(abundance.decoupler_png.map          { meta, file -> record(name: 'decoupler_png', meta: meta, files: [file].flatten()) })
-        .mix(abundance.functional_session_info.map { meta, file -> record(name: 'session_info', meta: meta, files: [file].flatten()) })
+    ch_pub_functional = abundance.gsea_report_tsv.map          { meta, ref, target -> tuple('gsea_report_tsv', meta, [ref, target].flatten()) }
+        .mix(abundance.gsea_report_html.map       { meta, ref, target -> tuple('gsea_report_html', meta, [ref, target].flatten()) })
+        .mix(abundance.gsea_index_html.map        { meta, file -> tuple('gsea_index_html', meta, [file].flatten()) })
+        .mix(abundance.gsea_heat_map_corr_plot.map { meta, file -> tuple('gsea_heat_map_corr_plot', meta, [file].flatten()) })
+        .mix(abundance.gsea_ranked_gene_list.map  { meta, file -> tuple('gsea_ranked_gene_list', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_sizes.map    { meta, file -> tuple('gsea_gene_set_sizes', meta, [file].flatten()) })
+        .mix(abundance.gsea_histogram.map         { meta, file -> tuple('gsea_histogram', meta, [file].flatten()) })
+        .mix(abundance.gsea_heatmap.map           { meta, file -> tuple('gsea_heatmap', meta, [file].flatten()) })
+        .mix(abundance.gsea_pvalues_vs_nes_plot.map { meta, file -> tuple('gsea_pvalues_vs_nes_plot', meta, [file].flatten()) })
+        .mix(abundance.gsea_ranked_list_corr.map  { meta, file -> tuple('gsea_ranked_list_corr', meta, [file].flatten()) })
+        .mix(abundance.gsea_butterfly_plot.map    { meta, file -> tuple('gsea_butterfly_plot', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_tsv.map      { meta, file -> tuple('gsea_gene_set_tsv', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_html.map     { meta, file -> tuple('gsea_gene_set_html', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_heatmap.map  { meta, file -> tuple('gsea_gene_set_heatmap', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_enplot.map   { meta, file -> tuple('gsea_gene_set_enplot', meta, [file].flatten()) })
+        .mix(abundance.gsea_gene_set_dist.map     { meta, file -> tuple('gsea_gene_set_dist', meta, [file].flatten()) })
+        .mix(abundance.gsea_snapshot.map          { meta, file -> tuple('gsea_snapshot', meta, [file].flatten()) })
+        .mix(abundance.gsea_archive.map           { meta, file -> tuple('gsea_archive', meta, [file].flatten()) })
+        .mix(abundance.gsea_rpt.map               { meta, file -> tuple('gsea_rpt', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_html.map        { meta, file -> tuple('gprofiler2_html', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_all_enrichment.map { meta, file -> tuple('gprofiler2_all_enrichment', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_sub_enrichment.map { meta, file -> tuple('gprofiler2_sub_enrichment', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_plot_png.map    { meta, file -> tuple('gprofiler2_plot_png', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_sub_plot.map    { meta, file -> tuple('gprofiler2_sub_plot', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_rds.map         { meta, file -> tuple('gprofiler2_rds', meta, [file].flatten()) })
+        .mix(abundance.gprofiler2_filtered_gmt.map { meta, file -> tuple('gprofiler2_filtered_gmt', meta, [file].flatten()) })
+        .mix(abundance.decoupler_estimate.map     { meta, file -> tuple('decoupler_estimate', meta, [file].flatten()) })
+        .mix(abundance.decoupler_pvals.map        { meta, file -> tuple('decoupler_pvals', meta, [file].flatten()) })
+        .mix(abundance.decoupler_png.map          { meta, file -> tuple('decoupler_png', meta, [file].flatten()) })
+        .mix(abundance.functional_session_info.map { meta, file -> tuple('session_info', meta, [file].flatten()) })
 
-    ch_pub_plotting = abundance.plot_exploratory.map { meta, file -> record(name: 'exploratory', meta: meta, files: [file].flatten()) }
-        .mix(abundance.plot_volcanos.map          { meta, file -> record(name: 'differential_volcanos', meta: meta, files: [file].flatten()) })
+    ch_pub_plotting = abundance.plot_exploratory.map { meta, file -> tuple('exploratory', meta, [file].flatten()) }
+        .mix(abundance.plot_volcanos.map          { meta, file -> tuple('differential_volcanos', meta, [file].flatten()) })
 
-    ch_pub_shinyngs = abundance.shinyngs_data.map { meta, file -> record(name: 'shinyngs_data', meta: meta, files: [file].flatten()) }
-        .mix(abundance.shinyngs_app_file.map      { meta, file -> record(name: 'shinyngs_app', meta: meta, files: [file].flatten()) })
+    ch_pub_shinyngs = abundance.shinyngs_data.map { meta, file -> tuple('shinyngs_data', meta, [file].flatten()) }
+        .mix(abundance.shinyngs_app_file.map      { meta, file -> tuple('shinyngs_app', meta, [file].flatten()) })
 
-    ch_pub_report = abundance.report_html.map { meta, file -> record(name: 'report_html', meta: meta, files: [file].flatten()) }
-        .mix(abundance.report_bundle.map          { meta, file -> record(name: 'report_bundle', meta: meta, files: [file].flatten()) })
+    ch_pub_report = abundance.report_html.map { meta, file -> tuple('report_html', meta, [file].flatten()) }
+        .mix(abundance.report_bundle.map          { meta, file -> tuple('report_bundle', meta, [file].flatten()) })
 
-    ch_pub_versions = abundance.nfcore_versions.map { file -> record(name: 'versions', meta: record(id: null), files: [file].flatten()) }
-        .mix(abundance.collated_versions.map      { file -> record(name: 'collated_versions', meta: record(id: null), files: [file].flatten()) })
+    ch_pub_versions = abundance.nfcore_versions.map { file -> tuple('versions', [id: null], [file].flatten()) }
+        .mix(abundance.collated_versions.map      { file -> tuple('collated_versions', [id: null], [file].flatten()) })
 
     // The files of propd and grea go in folders named after the run, without the paramset
-    ch_pub_propd = abundance.propd_results.map  { meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
-        .mix(abundance.propd_pairwise.map          { meta, file -> record(name: 'pairwise', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_pairwise_filtered.map { meta, file -> record(name: 'pairwise_filtered', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_fdr.map               { meta, file -> record(name: 'fdr', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_genewise_plot.map     { meta, file -> record(name: 'genewise_plot', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_rdata.map             { meta, file -> record(name: 'rdata', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_adjacency.map         { meta, file -> record(name: 'adjacency', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_session_info.map      { file -> record(name: 'session_info', meta: record(id: file.name.replace('.R_sessionInfo.log', '')), files: [file].flatten()) })
+    ch_pub_propd = abundance.propd_results.map  { meta, file -> tuple('results', meta, [file].flatten()) }
+        .mix(abundance.propd_pairwise.map          { meta, file -> tuple('pairwise', meta, [file].flatten()) })
+        .mix(abundance.propd_pairwise_filtered.map { meta, file -> tuple('pairwise_filtered', meta, [file].flatten()) })
+        .mix(abundance.propd_fdr.map               { meta, file -> tuple('fdr', meta, [file].flatten()) })
+        .mix(abundance.propd_genewise_plot.map     { meta, file -> tuple('genewise_plot', meta, [file].flatten()) })
+        .mix(abundance.propd_rdata.map             { meta, file -> tuple('rdata', meta, [file].flatten()) })
+        .mix(abundance.propd_adjacency.map         { meta, file -> tuple('adjacency', meta, [file].flatten()) })
+        .mix(abundance.propd_session_info.map      { file -> tuple('session_info', [id: file.name.replace('.R_sessionInfo.log', '')], [file].flatten()) })
 
-    ch_pub_grea = abundance.grea_results.map { meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
-        .mix(abundance.grea_session_info.map { file -> record(name: 'session_info', meta: record(id: file.name.replace('.R_sessionInfo.log', '')), files: [file].flatten()) })
+    ch_pub_grea = abundance.grea_results.map { meta, file -> tuple('results', meta, [file].flatten()) }
+        .mix(abundance.grea_session_info.map { file -> tuple('session_info', [id: file.name.replace('.R_sessionInfo.log', '')], [file].flatten()) })
 
     publish:
     preprocessing = ch_pub_preprocessing
@@ -433,7 +435,7 @@ workflow {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-def preprocessingTarget(r: Record) -> String {
+def preprocessingTarget(name: String, meta: Map) -> String {
     def folder = [
         // AFFY
         affy_raw_expression        : 'tables/processed_abundance',
@@ -458,53 +460,53 @@ def preprocessingTarget(r: Record) -> String {
         // GTF
         gtf_annotation             : 'tables/annotation',
 
-    ][r.name] ?: r.name
-    def target = (r.name in ['proteus_plots', 'proteus_raw_rdata', 'proteus_norm_rdata']) \
-        ? "${folder}/${r.meta.paramset_name}/${r.meta.contrast}/" \
-        : "${folder}/${r.meta.paramset_name}/"
+    ][name] ?: name
+    def target = (name in ['proteus_plots', 'proteus_raw_rdata', 'proteus_norm_rdata']) \
+        ? "${folder}/${meta.paramset_name}/${meta.contrast}/" \
+        : "${folder}/${meta.paramset_name}/"
     return target
 }
 
-def differentialTarget(r: Record) -> String {
+def differentialTarget(name: String, meta: Map) -> String {
     def folder = [
         results                    : 'tables/differential',
         results_filtered           : 'tables/differential',
         annotated                  : 'tables/differential',
         normalised_matrix          : 'tables/processed_abundance',
         variance_stabilised_matrix : 'tables/processed_abundance',
-        size_factors               : "other/${r.meta.params.differential_method}",
+        size_factors               : "other/${meta.params.differential_method}",
         dispersion_plot            : 'plots/qc',
         md_plot                    : 'plots/qc',
-        rdata                      : "other/${r.meta.params.differential_method}",
-        session_info               : "other/${r.meta.params.differential_method}"
-    ][r.name] ?: r.name
-    return "${folder}/${r.meta.paramset_name}/"
+        rdata                      : "other/${meta.params.differential_method}",
+        session_info               : "other/${meta.params.differential_method}"
+    ][name] ?: name
+    return "${folder}/${meta.paramset_name}/"
 }
 
-def propdTarget(r: Record) -> String {
+def propdTarget(name: String, meta: Map) -> String {
     def folder = [
         results           : 'tables/differential',
         pairwise          : 'tables/differential',
         pairwise_filtered : 'tables/differential',
         fdr               : 'tables/differential',
-        genewise_plot     : "plots/differential/${r.meta.id}",
-        rdata             : "other/propd/${r.meta.id}",
-        adjacency         : "other/propd/${r.meta.id}",
-        session_info      : "other/propd/${r.meta.id}"
-    ][r.name] ?: r.name
+        genewise_plot     : "plots/differential/${meta.id}",
+        rdata             : "other/propd/${meta.id}",
+        adjacency         : "other/propd/${meta.id}",
+        session_info      : "other/propd/${meta.id}"
+    ][name] ?: name
     return "${folder}/"
 }
 
-def greaTarget(r: Record) -> String {
+def greaTarget(name: String, meta: Map) -> String {
     def folder = [
-        results      : "tables/functional/grea/${r.meta.id}",
-        session_info : "other/grea/${r.meta.id}"
-    ][r.name] ?: r.name
+        results      : "tables/functional/grea/${meta.id}",
+        session_info : "other/grea/${meta.id}"
+    ][name] ?: name
     return "${folder}/"
 }
 
-def functionalTarget(r: Record) -> String {
-    def method = r.meta.params.functional_method
+def functionalTarget(name: String, meta: Map) -> String {
+    def method = meta.params.functional_method
     def folder = [
         // GSEA
         gsea_report_tsv           : 'report/gsea',
@@ -543,51 +545,51 @@ def functionalTarget(r: Record) -> String {
 
         // common outputs
         session_info               : "other/${method}"
-    ][r.name] ?: r.name
-    def gene_set_name = (method == 'gsea' && r.meta.params.gene_sets_files) \
-        ? r.meta.params.gene_sets_files.tokenize('/')[-1].replaceFirst(/\.[^.]+$/, '') \
+    ][name] ?: name
+    def gene_set_name = (method == 'gsea' && meta.params.gene_sets_files) \
+        ? meta.params.gene_sets_files.tokenize('/')[-1].replaceFirst(/\.[^.]+$/, '') \
         : null
-    def target = (method == 'gsea') ? "${folder}/${r.meta.paramset_name}/${r.meta.id}/${gene_set_name}/" \
-        : (method == 'gprofiler2') ? "${folder}/${r.meta.paramset_name}/${r.meta.id}/" \
-        : "${folder}/${r.meta.paramset_name}/"
+    def target = (method == 'gsea') ? "${folder}/${meta.paramset_name}/${meta.id}/${gene_set_name}/" \
+        : (method == 'gprofiler2') ? "${folder}/${meta.paramset_name}/${meta.id}/" \
+        : "${folder}/${meta.paramset_name}/"
     return target
 }
 
-def plottingTarget(r: Record) -> String {
+def plottingTarget(name: String, meta: Map) -> String {
     def folder = [
         exploratory           : 'plots/exploratory',
         differential_volcanos : 'plots/differential',
-    ][r.name] ?: r.name
-    return "${folder}/${r.meta.paramset_name}/"
+    ][name] ?: name
+    return "${folder}/${meta.paramset_name}/"
 }
 
 output {
-    preprocessing: Channel<Record> {
-        path { r -> r.files >> preprocessingTarget(r) }
+    preprocessing: Channel<Tuple> {
+        path { name, meta, files -> files >> preprocessingTarget(name, meta) }
     }
-    differential: Channel<Record> {
-        path { r -> r.files >> differentialTarget(r) }
+    differential: Channel<Tuple> {
+        path { name, meta, files -> files >> differentialTarget(name, meta) }
     }
-    functional: Channel<Record> {
-        path { r -> r.files >> functionalTarget(r) }
+    functional: Channel<Tuple> {
+        path { name, meta, files -> files >> functionalTarget(name, meta) }
     }
-    plotting: Channel<Record> {
-        path { r -> r.files >> plottingTarget(r) }
+    plotting: Channel<Tuple> {
+        path { name, meta, files -> files >> plottingTarget(name, meta) }
     }
-    propd: Channel<Record> {
-        path { r -> r.files >> propdTarget(r) }
+    propd: Channel<Tuple> {
+        path { name, meta, files -> files >> propdTarget(name, meta) }
     }
-    grea: Channel<Record> {
-        path { r -> r.files >> greaTarget(r) }
+    grea: Channel<Tuple> {
+        path { name, meta, files -> files >> greaTarget(name, meta) }
     }
-    shinyngs: Channel<Record> {
-        path { r -> r.files >> "shinyngs_app/${r.meta.paramset_name}/" }
+    shinyngs: Channel<Tuple> {
+        path { _name, meta, files -> files >> "shinyngs_app/${meta.paramset_name}/" }
     }
-    report: Channel<Record> {
-        path { r -> r.files >> "report/${r.meta.paramset_name}/" }
+    report: Channel<Tuple> {
+        path { _name, meta, files -> files >> "report/${meta.paramset_name}/" }
     }
-    versions: Channel<Record> {
-        path { r -> r.files >> "pipeline_info/" }
+    versions: Channel<Tuple> {
+        path { _name, _meta, files -> files >> "pipeline_info/" }
     }
 }
 

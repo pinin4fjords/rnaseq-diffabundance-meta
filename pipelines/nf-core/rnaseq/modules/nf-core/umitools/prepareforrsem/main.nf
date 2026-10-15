@@ -10,16 +10,17 @@ process UMITOOLS_PREPAREFORRSEM {
         'community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path
     )
 
     output:
-    record(
-        meta: meta,
-        bam:  file('*.bam'),
-        log:  file('*.log')
+    // (meta, bam, log)
+    tuple(
+        meta,
+        file('*.bam'),
+        file('*.log')
     )
 
     topic:

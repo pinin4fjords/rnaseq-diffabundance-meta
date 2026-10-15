@@ -10,14 +10,15 @@ process KALLISTO_INDEX {
         'community.wave.seqera.io/library/kallisto:0.52.0--31c771060d82d25c' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         fasta: Path,
         args:  String?
     )
 
     output:
-    record(meta: meta, index: file('kallisto'))
+    // (meta, index)
+    tuple(meta, file('kallisto'))
 
     topic:
     tuple(task.process, 'kallisto', eval('kallisto 2>&1 | head -1 | sed "s/^kallisto //; s/Usage.*//"')) >> 'versions'

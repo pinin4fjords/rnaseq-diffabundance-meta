@@ -10,15 +10,16 @@ process CUSTOM_GTFFILTER {
 :         'community.wave.seqera.io/library/python:3.14.5--dc8358b3c5eeb927' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         gtf:   Path,
         args:  String?,
         fasta: Path?
     )
 
     output:
-    record(meta: meta, gtf: file("${prefix}.${suffix}"))
+    // (meta, gtf)
+    tuple(meta, file("${prefix}.${suffix}"))
 
     topic:
     file('versions.yml') >> 'versions'

@@ -13,7 +13,7 @@ include { SUMMARIZEDEXPERIMENT_SUMMARIZEDEXPERIMENT as SE_TRANSCRIPT_UNIFIED } f
 workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     take:
     samplesheet: Value<Path>
-    ch_quants: Channel<Record> // per-sample quantification results
+    ch_quants: Channel<Tuple> // (meta, quants): per-sample quantification results
     gtf: Value<Path>
     gtf_id_attribute: String // GTF gene ID attribute
     gtf_extra_attribute: String // GTF alternative gene attribute (e.g. gene_name)
@@ -38,16 +38,27 @@ workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     // empty-list guard keeps tx2gene from running when no quant results are
     // supplied, since collect still emits an empty list in that case.
     //
+    // (meta, quants)
     ch_tx2gene_quants = ch_quants
         .collect()
-        .flatMap { rs -> rs.isEmpty() ? [] : [ record(meta: record(id: null), quants: [ rs.collect { r -> r.quants[0] }.toSorted { f -> f.name }.first() ]) ] }
+        .flatMap { rs -> rs.isEmpty() ? [] : [ tuple([id: null], [ rs.collect { _meta, quants -> quants[0] }.toSorted { f -> f.name }.first() ]) ] }
 
+    // (meta, tx2gene)
     ch_tx2gene = CUSTOM_TX2GENE(
         ch_tx2gene_quants
-            .map { r -> record(meta: r.meta, quants: r.quants, quant_type: quant_type, id: gtf_id_attribute, extra: gtf_extra_attribute) }
-            .combine(gtf: gtf)
+            .combine(gtf)
+            .map { meta, quants, gtf_file -> tuple(meta, quants, gtf_file, quant_type, gtf_id_attribute, gtf_extra_attribute) }
     )
-    ch_tx2gene_file = ch_tx2gene.collect().map { rs -> rs.isEmpty() ? null : rs.toSorted { r -> r.meta.id }.first().tx2gene }
+    // toSorted treats a two-parameter closure as a comparator, so the key closure indexes the tuple
+    def ch_tx2gene_file: Value<Path?> = ch_tx2gene
+        .collect()
+        .map { rs ->
+            if( rs.isEmpty() ) {
+                return null
+            }
+            def (_meta, tx2gene) = rs.toSorted { t -> t[0].id }.first()
+            return tx2gene
+        }
 
     //
     // Import and summarize quantifications with tximport
@@ -63,49 +74,68 @@ workflow QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT {
     } else {
         ch_tximport_input = ch_quants
             .collect()
-            .flatMap { rs -> rs.isEmpty() ? [] : [ record(meta: record(id: 'all_samples'), quants: rs.collect { r -> r.quants[0] }.toSorted { f -> f.name }) ] }
+            .flatMap { rs -> rs.isEmpty() ? [] : [ tuple([id: 'all_samples'], rs.collect { _meta, quants -> quants[0] }.toSorted { f -> f.name }) ] }
     }
 
-    ch_tximport = TXIMETA_TXIMPORT(ch_tximport_input.map { r -> record(meta: r.meta, quants: r.quants, quant_type: quant_type) }.combine(tx2gene: ch_tx2gene_file))
+    // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented)
+    // Process outputs and join results are lists, which combine nests rather than extends; tuple(t) turns them into tuples.
+    ch_tximport = TXIMETA_TXIMPORT(
+        ch_tximport_input
+            .map { t -> tuple(t) }
+            .combine(ch_tx2gene_file)
+            .map { meta, quants, tx2gene -> tuple(meta, quants, tx2gene, quant_type) }
+    )
 
     //
     // Build SummarizedExperiment objects (only when merging)
     //
+    // ch_se_gene: (meta, merged_gene_rds), ch_se_transcript: (meta, merged_transcript_rds)
     if (skip_merge) {
-        ch_se_gene       = ch_tximport.map { r -> record(meta: r.meta, merged_gene_rds: null) }
-        ch_se_transcript = ch_tximport.map { r -> record(meta: r.meta, merged_transcript_rds: null) }
+        ch_se_gene       = ch_tximport.map { meta, _tpm_gene, _counts_gene, _lengths_gene, _counts_gene_length_scaled, _counts_gene_scaled, _tpm_transcript, _counts_transcript, _lengths_transcript, _tx2gene_augmented -> tuple(meta, null) }
+        ch_se_transcript = ch_tximport.map { meta, _tpm_gene, _counts_gene, _lengths_gene, _counts_gene_length_scaled, _counts_gene_scaled, _tpm_transcript, _counts_transcript, _lengths_transcript, _tx2gene_augmented -> tuple(meta, null) }
     } else {
         //
         // Build gene-level SummarizedExperiment
         //
         ch_se_gene = SE_GENE_UNIFIED(
-            ch_tximport.map { r ->
-                record(meta: r.meta, matrix_files: [ r.counts_gene, r.counts_gene_length_scaled, r.counts_gene_scaled, r.lengths_gene, r.tpm_gene ], prefix: tool_args.se_prefix ? "${tool_args.se_prefix}.gene" : "${r.meta.id}_gene")
-            }.combine(rowdata: ch_tx2gene_file, coldata: samplesheet)
-        ).map { r -> record(meta: r.meta, merged_gene_rds: r.rds) }
+            ch_tximport.map { meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, _tpm_transcript, _counts_transcript, _lengths_transcript, _tx2gene_augmented ->
+                tuple(meta, [ counts_gene, counts_gene_length_scaled, counts_gene_scaled, lengths_gene, tpm_gene ], tool_args.se_prefix ? "${tool_args.se_prefix}.gene" : "${meta.id}_gene")
+            }
+                .combine(ch_tx2gene_file)
+                .combine(samplesheet)
+        ).map { meta, rds, _log -> tuple(meta, rds) }
 
         //
         // Build transcript-level SummarizedExperiment
         //
+        def ch_tx2gene_augmented: Value<Path?> = ch_tximport
+            .collect()
+            .map { rs ->
+                if( rs.isEmpty() ) {
+                    return null
+                }
+                def (_meta, _tpm_gene, _counts_gene, _lengths_gene, _counts_gene_length_scaled, _counts_gene_scaled, _tpm_transcript, _counts_transcript, _lengths_transcript, tx2gene_augmented) = rs.toSorted { t -> t[0].id }.first()
+                return tx2gene_augmented
+            }
         ch_se_transcript = SE_TRANSCRIPT_UNIFIED(
-            ch_tximport.map { r ->
-                record(meta: r.meta, matrix_files: [ r.counts_transcript, r.lengths_transcript, r.tpm_transcript ], prefix: tool_args.se_prefix ? "${tool_args.se_prefix}.transcript" : "${r.meta.id}_transcript")
-            }.combine(
-                rowdata: ch_tximport.collect().map { rs -> rs.isEmpty() ? null : rs.toSorted { r -> r.meta.id }.first().tx2gene_augmented },
-                coldata: samplesheet
-            )
-        ).map { r -> record(meta: r.meta, merged_transcript_rds: r.rds) }
+            ch_tximport.map { meta, _tpm_gene, _counts_gene, _lengths_gene, _counts_gene_length_scaled, _counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, _tx2gene_augmented ->
+                tuple(meta, [ counts_transcript, lengths_transcript, tpm_transcript ], tool_args.se_prefix ? "${tool_args.se_prefix}.transcript" : "${meta.id}_transcript")
+            }
+                .combine(ch_tx2gene_augmented)
+                .combine(samplesheet)
+        ).map { meta, rds, _log -> tuple(meta, rds) }
     }
 
     //
-    // One record per TXIMETA_TXIMPORT row: a single 'all_samples' row when
+    // One tuple per TXIMETA_TXIMPORT row: a single 'all_samples' row when
     // merging, or one per sample under skip_merge. The SE outputs only exist
     // when merging and are null otherwise.
     //
+    // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript, counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene)
     ch_results = ch_tximport
-        .join(ch_se_gene, by: 'meta')
-        .join(ch_se_transcript, by: 'meta')
-        .combine(tx2gene: ch_tx2gene_file)
+        .join(ch_se_gene, by: 0)
+        .join(ch_se_transcript, by: 0).map { t -> tuple(t) }
+        .combine(ch_tx2gene_file)
 
     emit:
     ch_results

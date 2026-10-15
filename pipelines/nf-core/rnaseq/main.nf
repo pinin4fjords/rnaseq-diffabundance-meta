@@ -315,43 +315,61 @@ workflow NFCORE_RNASEQ {
 
     // No task-workdir guard: a user-supplied --bowtie2_rrna_index is republished too.
     def ch_rrna_bowtie2_index: Channel<Path> = results.rrna_references
-        .map { r -> r.bowtie2_index }
+        .map { _sortmerna_index, bowtie2_index, _seqkit_prefixed, _seqkit_converted -> bowtie2_index }
         .flatMap { index -> index == null ? [] : [index] }
 
-    // Same-basename fields split out per stage to avoid a >> rename-key collision (nextflow-io/nextflow#6617).
-    def ch_lint_raw     = results.preprocessed.map { r -> record(meta: r.meta, file: r.lint?.raw) }.filter { s -> s.file != null }
-    def ch_lint_trimmed = results.preprocessed.map { r -> record(meta: r.meta, file: r.lint?.trimmed) }.filter { s -> s.file != null }
-    def ch_lint_bbsplit = results.preprocessed.map { r -> record(meta: r.meta, file: r.lint?.bbsplit) }.filter { s -> s.file != null }
-    def ch_lint_ribo    = results.preprocessed.map { r -> record(meta: r.meta, file: r.lint?.ribo) }.filter { s -> s.file != null }
+    // Same-basename files split out per stage to avoid a >> rename-key collision (nextflow-io/nextflow#6617).
+    // Each is (meta, lint_report), from lint(raw, trimmed, bbsplit, ribo) of the preprocessed tuple.
+    def ch_lint_raw     = results.preprocessed
+        .map { meta, _reads, _reads_cat, _reads_trimmed, _num_trimmed_reads, _fastqc, _trim, _umi, _bbsplit, lint, _rrna -> tuple(meta, nth(lint, 0)) }
+        .filter { _meta, lint_report -> lint_report != null }
+    def ch_lint_trimmed = results.preprocessed
+        .map { meta, _reads, _reads_cat, _reads_trimmed, _num_trimmed_reads, _fastqc, _trim, _umi, _bbsplit, lint, _rrna -> tuple(meta, nth(lint, 1)) }
+        .filter { _meta, lint_report -> lint_report != null }
+    def ch_lint_bbsplit = results.preprocessed
+        .map { meta, _reads, _reads_cat, _reads_trimmed, _num_trimmed_reads, _fastqc, _trim, _umi, _bbsplit, lint, _rrna -> tuple(meta, nth(lint, 2)) }
+        .filter { _meta, lint_report -> lint_report != null }
+    def ch_lint_ribo    = results.preprocessed
+        .map { meta, _reads, _reads_cat, _reads_trimmed, _num_trimmed_reads, _fastqc, _trim, _umi, _bbsplit, lint, _rrna -> tuple(meta, nth(lint, 3)) }
+        .filter { _meta, lint_report -> lint_report != null }
 
     // The prepared rRNA FASTAs publish whether or not --save_reference is set, so they cannot ride the genome target.
-    def ch_rrna_seqkit = results.rrna_references.flatMap { r -> ((r.seqkit_prefixed ?: []) as List<Path>).isEmpty() && ((r.seqkit_converted ?: []) as List<Path>).isEmpty() ? [] : [r] }
+    // (sortmerna_index, bowtie2_index, seqkit_prefixed, seqkit_converted)
+    def ch_rrna_seqkit = results.rrna_references.flatMap { sortmerna_index, bowtie2_index, seqkit_prefixed, seqkit_converted ->
+        ((seqkit_prefixed ?: []) as List<Path>).isEmpty() && ((seqkit_converted ?: []) as List<Path>).isEmpty()
+            ? []
+            : [tuple(sortmerna_index, bowtie2_index, seqkit_prefixed, seqkit_converted)]
+    }
 
-    // samplesheet_with_bams.csv rows: one per sequencing run of a sample, with the aligned record's
+    // samplesheet_with_bams.csv rows: one per sequencing run of a sample, with the aligned
     // meta so an inferred strandedness replaces 'auto'. genome_bam is the
     // coordinate-sorted BAM; bowtie2_salmon aligns to the transcriptome, so its unsorted bowtie2 BAM is the transcriptome_bam.
     // The BAMs are published by the `aligned` output, so the row carries their published location
     // as a string; routing the Paths through `samplesheet` too would copy each file twice.
-    // The runs carry the samplesheet meta, before strandedness inference, so they join on the sample name
-    ch_runs = results.reads.map { r -> record(sample: r.meta.id, runs: r.runs) }
+    // The runs carry the samplesheet meta, before strandedness inference, so they join on the sample name.
+    // (id, runs)
+    ch_runs = results.reads.map { meta, runs -> tuple(meta.id, runs) }
 
+    // (sample, fastq_1, fastq_2, strandedness, seq_platform, seq_center, genome_bam, percent_mapped, transcriptome_bam):
+    // the samplesheet output's `header` lists these column names in this order
     def ch_samplesheet_rows = results.aligned
-        .join(results.percent_mapped, by: 'meta')
-        .map { r -> r + record(sample: r.meta.id) }
-        .join(ch_runs, by: 'sample')
-        .flatMap { r ->
-            def aligned_dir = "${params.skip_quantification_merge ? "${r.meta.id}/" : ''}${params.aligner}/"
-            r.runs.collect { run ->
-                record(
-                    sample:            r.meta.id,
-                    fastq_1:           run[0],
-                    fastq_2:           run.size() > 1 ? run[1] : null,
-                    strandedness:      r.meta.strandedness,
-                    seq_platform:      r.meta.seq_platform ?: params.seq_platform,
-                    seq_center:        r.meta.seq_center ?: params.seq_center,
-                    genome_bam:        r.bam != null ? "${workflow.outputDir}/${aligned_dir}${r.bam.name}" : null,
-                    percent_mapped:    r.percent_mapped,
-                    transcriptome_bam: r.transcriptome_bam != null ? "${workflow.outputDir}/${aligned_dir}${r.transcriptome_bam.name}" : null
+        .map { meta, bam, _bai, _samtools, percent_mapped, _raw_bams, transcriptome_bam, _unmapped, _logs ->
+            tuple(meta.id, meta, bam, percent_mapped, transcriptome_bam)
+        }
+        .join(ch_runs, by: 0)
+        .flatMap { _id, meta, bam, percent_mapped, transcriptome_bam, runs ->
+            def aligned_dir = "${params.skip_quantification_merge ? "${meta.id}/" : ''}${params.aligner}/"
+            runs.collect { run ->
+                tuple(
+                    meta.id,
+                    run[0],
+                    run.size() > 1 ? run[1] : null,
+                    meta.strandedness,
+                    meta.seq_platform ?: params.seq_platform,
+                    meta.seq_center ?: params.seq_center,
+                    bam != null ? "${workflow.outputDir}/${aligned_dir}${bam.name}" : null,
+                    percent_mapped,
+                    transcriptome_bam != null ? "${workflow.outputDir}/${aligned_dir}${transcriptome_bam.name}" : null
                 )
             }
         }
@@ -360,47 +378,49 @@ workflow NFCORE_RNASEQ {
     def ch_gene_quant = params.skip_alignment ? results.quant_merged_pseudo : results.quant_merged
 
     emit:
-    trim_status:           Channel<Record>                       = results.trim_status
-    map_status:            Channel<Record>                        = results.map_status
-    strand_status:         Channel<Record>                     = results.strand_status
-    multiqc_report:        Channel<Path>                             = results.multiqc_report
-    gtf:                   Value<Path?>                              = references.gtf
-    gene_quant:            Channel<Record>                      = ch_gene_quant
-    genome_references:     Channel<Record>                   = references.references
-    genome_intermediates:  Channel<Record>                   = references.intermediates
-    genome_indices:        Channel<Record>                   = indices.indices
-    rrna_bowtie2_index:    Channel<Path>                             = ch_rrna_bowtie2_index
-    rrna_seqkit:           Channel<Record>                   = ch_rrna_seqkit
+    trim_status:           Channel<Tuple>   = results.trim_status     // (meta, pass)
+    map_status:            Channel<Tuple>   = results.map_status      // (meta, pass)
+    strand_status:         Channel<Tuple>   = results.strand_status   // (meta, pass)
+    multiqc_report:        Channel<Path>    = results.multiqc_report
+    gtf:                   Value<Path?>     = references.gtf
+    // (meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript,
+    //  counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene)
+    gene_quant:            Channel<Tuple>   = ch_gene_quant
+    genome_references:     Channel<Tuple>   = references.references     // (kind, file)
+    genome_intermediates:  Channel<Tuple>   = references.intermediates  // (kind, file)
+    genome_indices:        Channel<Tuple>   = indices.indices           // (kind, file)
+    rrna_bowtie2_index:    Channel<Path>    = ch_rrna_bowtie2_index
+    rrna_seqkit:           Channel<Tuple>   = ch_rrna_seqkit
 
-    // Stage result records, keyed on meta
-    preprocessed:          Channel<Record> = results.preprocessed
-    lint_raw:              Channel<Record>                         = ch_lint_raw
-    lint_trimmed:          Channel<Record>                         = ch_lint_trimmed
-    lint_bbsplit:          Channel<Record>                         = ch_lint_bbsplit
-    lint_ribo:             Channel<Record>                         = ch_lint_ribo
-    aligned:               Channel<Record>                    = results.aligned
-    umi_dedup:             Channel<Record>                      = results.umi_dedup
-    markdup:               Channel<Record>                       = results.markdup
-    bam_qc:                Channel<Record>                      = results.bam_qc
-    bam_qc_rustqc:         Channel<Record>                     = results.bam_qc_rustqc
-    samplesheet:           Channel<Record>                   = ch_samplesheet_rows
-    quant:                 Channel<Record>                  = results.quant
-    quant_salmon:          Channel<Record>                = results.quant_salmon
-    quant_merged:          Channel<Record>                      = results.quant_merged
-    quant_rsem_merge:      Channel<Record>                  = results.quant_rsem_merge
-    quant_pseudo:          Channel<Record>                = results.quant_pseudo
-    quant_pseudo_kallisto: Channel<Record>              = results.quant_pseudo_kallisto
-    quant_merged_pseudo:   Channel<Record>                      = results.quant_merged_pseudo
-    contaminants:          Channel<Record>                     = results.contaminants
-    stringtie:             Channel<Record>                  = results.stringtie
-    bigwig:                Channel<Record>                     = results.bigwig
+    // Per-sample stage results, keyed on meta. The RNASEQ workflow documents each layout.
+    preprocessed:          Channel<Tuple>   = results.preprocessed
+    lint_raw:              Channel<Tuple>   = ch_lint_raw
+    lint_trimmed:          Channel<Tuple>   = ch_lint_trimmed
+    lint_bbsplit:          Channel<Tuple>   = ch_lint_bbsplit
+    lint_ribo:             Channel<Tuple>   = ch_lint_ribo
+    aligned:               Channel<Tuple>   = results.aligned
+    umi_dedup:             Channel<Tuple>   = results.umi_dedup
+    markdup:               Channel<Tuple>   = results.markdup
+    bam_qc:                Channel<Tuple>   = results.bam_qc
+    bam_qc_rustqc:         Channel<Tuple>   = results.bam_qc_rustqc
+    samplesheet:           Channel<Tuple>   = ch_samplesheet_rows
+    quant:                 Channel<Tuple>   = results.quant
+    quant_salmon:          Channel<Tuple>   = results.quant_salmon
+    quant_merged:          Channel<Tuple>   = results.quant_merged
+    quant_rsem_merge:      Channel<Tuple>   = results.quant_rsem_merge
+    quant_pseudo:          Channel<Tuple>   = results.quant_pseudo
+    quant_pseudo_kallisto: Channel<Tuple>   = results.quant_pseudo_kallisto
+    quant_merged_pseudo:   Channel<Tuple>   = results.quant_merged_pseudo
+    contaminants:          Channel<Tuple>   = results.contaminants
+    stringtie:             Channel<Tuple>   = results.stringtie
+    bigwig:                Channel<Tuple>   = results.bigwig
 
-    // Run-level result records
-    stringtie_merged:      Channel<Record>                  = results.stringtie_merged
-    deseq2:                Channel<Record>                         = results.deseq2
-    deseq2_pseudo:         Channel<Record>                         = results.deseq2_pseudo
-    multiqc:               Channel<Record>                    = results.multiqc
-    pipeline_info:         Channel<Record>                     = results.pipeline_info
+    // Run-level results
+    stringtie_merged:      Channel<Tuple>   = results.stringtie_merged
+    deseq2:                Channel<Tuple>   = results.deseq2
+    deseq2_pseudo:         Channel<Tuple>   = results.deseq2_pseudo
+    multiqc:               Channel<Tuple>   = results.multiqc          // (meta, report, data, plots)
+    pipeline_info:         Channel<Path>    = results.pipeline_info
 }
 
 /*
@@ -483,86 +503,95 @@ workflow {
     pipeline_info        = results.pipeline_info
 }
 
-// Per-sample directory prefix for per-record outputs under --skip_quantification_merge.
-// Run-level records (e.g. a cross-sample merged file) are never sample-prefixed.
+// Per-sample directory prefix for per-sample outputs under --skip_quantification_merge.
+// Run-level results (e.g. a cross-sample merged file) are never sample-prefixed.
 def samplePrefix(id: String) -> String { params.skip_quantification_merge ? "${id}/" : '' }
 
 // Directory the aligned BAM/BAI/transcriptome BAM publish to. Also used to rebuild the
 // samplesheet's genome_bam/transcriptome_bam paths in the entry workflow, so the two can't drift.
 def alignedDir(id: String) -> String { "${samplePrefix(id)}${params.aligner}/" }
 
-// Each `path` closure returns a map of files to target directories. When a file is a key more than once
-// (two record fields can hold the same file), the last entry wins, including a null target that
-// suppresses it, so the order of entries is part of the routing. Where fields can overlap, the
-// closure says which entry has to come last.
+// Element `i` of a nested result tuple, or null when the tuple is null because its stage did not run.
+def nth(t, i: Integer) { t != null ? (t as List)[i] : null }
+
+// Each `path` closure destructures the tuple layout documented on its emit, and returns a map of
+// files to target directories. When a file is a key more than once (two elements can hold the same
+// file), the last entry wins, including a null target that suppresses it, so the order of entries
+// is part of the routing. Where elements can overlap, the closure says which entry has to come last.
 output {
-    contaminants: Channel<Record> {   // exactly one tool branch is populated per run
+    contaminants: Channel<Tuple> {   // exactly one tool branch is populated per run
         enabled !params.skip_qc && params.contaminant_screening
-        path { s ->
-            def dir     = "${alignedDir(s.meta.id)}contaminants/"
+        path { meta, kraken2, bracken, sylph_profile, sylphtax_taxprof ->
+            // kraken2: (report, classified_reads_fastq, unclassified_reads_fastq, classified_reads_assignment); bracken: (abundance, report)
+            def dir     = "${alignedDir(meta.id)}contaminants/"
             def kraken  = "${dir}kraken2/kraken_reports/"
-            def bracken = "${dir}bracken/"
+            def brackenDir = "${dir}bracken/"
             def sylph   = "${dir}sylph/"
             def saveAssignments = params.save_kraken_assignments ? kraken : null
             [
-                (s.kraken2?.report):                         kraken,
-                (s.kraken2?.classified_reads_fastq):         saveAssignments,
-                (s.kraken2?.unclassified_reads_fastq):       saveAssignments,
-                (s.kraken2?.classified_reads_assignment):    params.save_kraken_unassigned ? kraken : null,
-                ([s.bracken?.abundance, s.bracken?.report]): bracken,
-                ([s.sylph?.profile, s.sylphtax?.taxprof]):   sylph,
+                (nth(kraken2, 0)):                           kraken,
+                (nth(kraken2, 1)):                           saveAssignments,
+                (nth(kraken2, 2)):                           saveAssignments,
+                (nth(kraken2, 3)):                           params.save_kraken_unassigned ? kraken : null,
+                ([nth(bracken, 0), nth(bracken, 1)]):        brackenDir,
+                ([sylph_profile, sylphtax_taxprof]):         sylph,
             ]
         }
     }
 
-    stringtie: Channel<Record> {
+    stringtie: Channel<Tuple> {
         enabled !params.skip_stringtie
-        path { s ->
-            def dir = "${alignedDir(s.meta.id)}stringtie/"
+        path { meta, transcript_gtf, abundance, coverage_gtf, ballgown, denovo ->
+            // denovo: (transcript_gtf, abundance, coverage_gtf, ballgown)
+            def dir = "${alignedDir(meta.id)}stringtie/"
             [
-                ([s.transcript_gtf, s.abundance, s.coverage_gtf, s.denovo?.transcript_gtf]): dir,
-                (s.ballgown):                                                                dir,
+                ([transcript_gtf, abundance, coverage_gtf, nth(denovo, 0)]): dir,
+                (ballgown):                                                  dir,
             ]
         }
     }
 
-    stringtie_merged: Channel<Record> {   // cross-sample, never sample-prefixed
+    stringtie_merged: Channel<Tuple> {   // cross-sample, never sample-prefixed
         enabled !params.skip_stringtie && params.stringtie_ignore_gtf
-        path { s -> s.merged_gtf >> "${params.aligner}/stringtie/" }
+        path { _meta, _gtf, _assemblies, merged_gtf -> merged_gtf >> "${params.aligner}/stringtie/" }
     }
 
-    bigwig: Channel<Record> {   // bedgraph stays unrouted
+    bigwig: Channel<Tuple> {   // bedgraph stays unrouted
         enabled !params.skip_bigwig
-        path { s ->
-            [([s.combined?.bigwig, s.forward?.bigwig, s.reverse?.bigwig]): "${alignedDir(s.meta.id)}bigwig/"]
+        path { meta, combined, forward, reverse ->
+            // each track: (bedgraph, bigwig)
+            [([nth(combined, 1), nth(forward, 1), nth(reverse, 1)]): "${alignedDir(meta.id)}bigwig/"]
         }
     }
 
-    // The genome targets route on GenomeArtifact.kind: 'kraken_db' (genome_references) and 'sortmerna' (genome_indices).
+    // The genome targets route on the kind element: 'kraken_db' (genome_references) and 'sortmerna' (genome_indices).
     // gtf and gene_quant are only returned to an including pipeline, never published
     gtf: Path? {
         enabled false
         path { f -> f >> "genome/" }
     }
 
-    gene_quant: Channel<Record> {
+    gene_quant: Channel<Tuple> {
         enabled false
-        path { s -> s.counts_gene >> "quant/" }
+        path { _meta, _tpm_gene, counts_gene, _lengths_gene, _counts_gene_length_scaled, _counts_gene_scaled, _tpm_transcript,
+               _counts_transcript, _lengths_transcript, _tx2gene_augmented, _merged_gene_rds, _merged_transcript_rds, _tx2gene ->
+            counts_gene >> "quant/"
+        }
     }
 
-    genome_references: Channel<Record> {   // never sample-prefixed
+    genome_references: Channel<Tuple> {   // never sample-prefixed
         enabled params.save_reference
-        path { r -> r.file >> (r.kind == 'kraken_db' ? 'genome/index/' : 'genome/') }
+        path { kind, ref_file -> ref_file >> (kind == 'kraken_db' ? 'genome/index/' : 'genome/') }
     }
 
-    genome_intermediates: Channel<Record> {   // never sample-prefixed
+    genome_intermediates: Channel<Tuple> {   // never sample-prefixed
         enabled params.save_reference
-        path { r -> r.file >> 'genome/' }
+        path { _kind, ref_file -> ref_file >> 'genome/' }
     }
 
-    genome_indices: Channel<Record> {   // never sample-prefixed
+    genome_indices: Channel<Tuple> {   // never sample-prefixed
         enabled params.save_reference
-        path { r -> r.file >> (r.kind == 'sortmerna' ? 'genome/sortmerna/' : 'genome/index/') }
+        path { kind, index_file -> index_file >> (kind == 'sortmerna' ? 'genome/sortmerna/' : 'genome/index/') }
     }
 
     rrna_bowtie2_index: Channel<Path> {   // never sample-prefixed
@@ -570,302 +599,329 @@ output {
         path { p -> p >> 'bowtie2_rrna/index/' }
     }
 
-    rrna_seqkit: Channel<Record> {   // ch_rrna_seqkit guarantees at least one FASTA list is non-empty
-        path { r ->
-            r.seqkit_prefixed >> 'seqkit/'
-            r.seqkit_converted >> 'seqkit/'
+    rrna_seqkit: Channel<Tuple> {   // ch_rrna_seqkit guarantees at least one FASTA list is non-empty
+        path { _sortmerna_index, _bowtie2_index, seqkit_prefixed, seqkit_converted ->
+            seqkit_prefixed >> 'seqkit/'
+            seqkit_converted >> 'seqkit/'
         }
     }
 
-    preprocessed: Channel<Record> {   // no single anchor field survives every skip combination
-        path { s ->
-            def sp       = samplePrefix(s.meta.id)
-            def fastqc   = "${sp}fastqc/"
+    preprocessed: Channel<Tuple> {   // no single anchor element survives every skip combination
+        path { meta, reads, reads_cat, reads_trimmed, _num_trimmed_reads, fastqc, trim, umi, bbsplit, _lint, rrna ->
+            // fastqc: (raw_html, raw_zip, trim_html, trim_zip, filtered_html, filtered_zip)
+            // trim: (html, log, json, unpaired, reads_fail, reads_merged); umi: (log, reads)
+            // bbsplit: (stats, primary_reads, other_genome_reads); rrna: (sortmerna_log, ribodetector_log, seqkit_stats, bowtie2_log)
+            def sp       = samplePrefix(meta.id)
+            def fastqcDir = "${sp}fastqc/"
             def trimDir  = "${sp}${params.trimmer}/"
             def umitools = "${sp}umitools/"
-            def bbsplit  = "${sp}bbsplit/"
+            def bbsplitDir = "${sp}bbsplit/"
             def riboDir  = "${sp}${params.ribo_removal_tool == 'bowtie2' ? 'bowtie2_rrna' : params.ribo_removal_tool}/"
             def isFastp  = params.trimmer == 'fastp'
             def saveTrimmed = params.save_trimmed ? trimDir : null
-            def saveBbsplit = params.save_bbsplit_reads ? bbsplit : null
+            def saveBbsplit = params.save_bbsplit_reads ? bbsplitDir : null
             // Only the single-end --un-gz FASTQs are published; paired-end reads rebuilt by SAMTOOLS_FASTQ_BOWTIE2 are not.
-            def saveNonRibo = params.remove_ribo_rna && params.save_non_ribo_reads && (params.ribo_removal_tool != 'bowtie2' || s.meta.single_end)
+            def saveNonRibo = params.remove_ribo_rna && params.save_non_ribo_reads && (params.ribo_removal_tool != 'bowtie2' || meta.single_end)
             [
                 // `reads` can be the same files as `reads_cat` or `reads_trimmed`. A later entry for the same files
                 // replaces an earlier one even when its target is null, so `reads` must stay first.
-                (s.reads):                       saveNonRibo ? riboDir : null,
-                (s.reads_cat):                   params.save_merged_fastq ? "${sp}fastq/" : null,
-                (s.reads_trimmed):               params.skip_trimming ? null : saveTrimmed,
-                (s.fastqc?.raw_html):            "${fastqc}raw/",
-                (s.fastqc?.raw_zip):             "${fastqc}raw/",
-                (s.fastqc?.trim_html):           "${fastqc}trim/",
-                (s.fastqc?.trim_zip):            "${fastqc}trim/",
-                (s.fastqc?.filtered_html):       "${fastqc}filtered/",
-                (s.fastqc?.filtered_zip):        "${fastqc}filtered/",
-                (s.trim?.html):                  trimDir,
-                (s.trim?.log):                   isFastp ? "${trimDir}log/" : trimDir,
-                (s.trim?.json):                  isFastp ? trimDir : null,
-                (s.trim?.unpaired):              saveTrimmed,
-                (s.trim?.reads_fail):            saveTrimmed,
-                (s.trim?.reads_merged):          saveTrimmed,
-                (s.umi?.log):                    umitools,
-                (s.umi?.reads):                  params.save_umi_intermeds ? umitools : null,
-                (s.bbsplit?.stats):              bbsplit,
-                (s.bbsplit?.primary_reads):      saveBbsplit,
-                (s.bbsplit?.other_genome_reads): saveBbsplit,
-                (s.rrna?.sortmerna_log):         "${sp}sortmerna/",
-                ([s.rrna?.ribodetector_log, s.rrna?.seqkit_stats]): "${sp}ribodetector/",
-                (s.rrna?.bowtie2_log):           "${sp}bowtie2_rrna/",
+                (reads):                  saveNonRibo ? riboDir : null,
+                (reads_cat):              params.save_merged_fastq ? "${sp}fastq/" : null,
+                (reads_trimmed):          params.skip_trimming ? null : saveTrimmed,
+                (nth(fastqc, 0)):         "${fastqcDir}raw/",
+                (nth(fastqc, 1)):         "${fastqcDir}raw/",
+                (nth(fastqc, 2)):         "${fastqcDir}trim/",
+                (nth(fastqc, 3)):         "${fastqcDir}trim/",
+                (nth(fastqc, 4)):         "${fastqcDir}filtered/",
+                (nth(fastqc, 5)):         "${fastqcDir}filtered/",
+                (nth(trim, 0)):           trimDir,
+                (nth(trim, 1)):           isFastp ? "${trimDir}log/" : trimDir,
+                (nth(trim, 2)):           isFastp ? trimDir : null,
+                (nth(trim, 3)):           saveTrimmed,
+                (nth(trim, 4)):           saveTrimmed,
+                (nth(trim, 5)):           saveTrimmed,
+                (nth(umi, 0)):            umitools,
+                (nth(umi, 1)):            params.save_umi_intermeds ? umitools : null,
+                (nth(bbsplit, 0)):        bbsplitDir,
+                (nth(bbsplit, 1)):        saveBbsplit,
+                (nth(bbsplit, 2)):        saveBbsplit,
+                (nth(rrna, 0)):           "${sp}sortmerna/",
+                ([nth(rrna, 1), nth(rrna, 2)]): "${sp}ribodetector/",
+                (nth(rrna, 3)):           "${sp}bowtie2_rrna/",
             ]
         }
     }
 
     // One target per FQ_LINT stage: same basename, avoids the >> collision (nextflow-io/nextflow#6617).
-    lint_raw: Channel<Record> {   // file is non-null: ch_lint_raw filters nulls
-        path { s -> s.file >> "${samplePrefix(s.meta.id)}fq_lint/raw/" }
+    lint_raw: Channel<Tuple> {   // lint_report is non-null: ch_lint_raw filters nulls
+        path { meta, lint_report -> lint_report >> "${samplePrefix(meta.id)}fq_lint/raw/" }
     }
 
-    lint_trimmed: Channel<Record> {   // file is non-null: ch_lint_trimmed filters nulls
-        path { s -> s.file >> "${samplePrefix(s.meta.id)}fq_lint/trimmed/" }
+    lint_trimmed: Channel<Tuple> {   // lint_report is non-null: ch_lint_trimmed filters nulls
+        path { meta, lint_report -> lint_report >> "${samplePrefix(meta.id)}fq_lint/trimmed/" }
     }
 
-    lint_bbsplit: Channel<Record> {   // file is non-null: ch_lint_bbsplit filters nulls
-        path { s -> s.file >> "${samplePrefix(s.meta.id)}fq_lint/bbsplit/" }
+    lint_bbsplit: Channel<Tuple> {   // lint_report is non-null: ch_lint_bbsplit filters nulls
+        path { meta, lint_report -> lint_report >> "${samplePrefix(meta.id)}fq_lint/bbsplit/" }
     }
 
-    lint_ribo: Channel<Record> {   // file is non-null: ch_lint_ribo filters nulls
-        path { s -> s.file >> "${samplePrefix(s.meta.id)}fq_lint/${params.ribo_removal_tool ?: 'sortmerna'}/" }
+    lint_ribo: Channel<Tuple> {   // lint_report is non-null: ch_lint_ribo filters nulls
+        path { meta, lint_report -> lint_report >> "${samplePrefix(meta.id)}fq_lint/${params.ribo_removal_tool ?: 'sortmerna'}/" }
     }
 
-    aligned: Channel<Record> {
-        path { s ->
-            def dir         = alignedDir(s.meta.id)
-            def logDir      = "${dir}log/"
+    aligned: Channel<Tuple> {
+        path { meta, bam, bai, samtools, _percent_mapped, raw_bams, transcriptome_bam, unmapped, logs ->
+            // samtools: (stats, flagstat, idxstats)
+            def dir         = alignedDir(meta.id)
             def bamDir      = (params.save_align_intermeds || params.skip_markduplicates) ? dir : null
             def intermedDir = params.save_align_intermeds ? dir : null
             [
-                ([s.samtools?.stats, s.samtools?.flagstat, s.samtools?.idxstats]): "${dir}samtools_stats/",
-                ([s.bam, s.bai]):                                                   bamDir,
-                ((s.raw_bams + [s.transcriptome_bam]).toSet()):                     intermedDir,
-                (s.unmapped):                                                       params.save_unaligned ? "${dir}unmapped/" : null,
-                ([s.star?.log_final, s.star?.log_out, s.star?.log_progress, s.hisat2?.summary, s.bowtie2?.log]): logDir,
-                (s.star?.tab):                                                      logDir,
+                ([nth(samtools, 0), nth(samtools, 1), nth(samtools, 2)]): "${dir}samtools_stats/",
+                ([bam, bai]):                                             bamDir,
+                ((raw_bams + [transcriptome_bam]).toSet()):               intermedDir,
+                (unmapped):                                               params.save_unaligned ? "${dir}unmapped/" : null,
+                (logs):                                                   "${dir}log/",
             ]
         }
     }
 
-    samplesheet: Channel<Record> {   // field order is the CSV column order
+    samplesheet: Channel<Tuple> {
         enabled params.save_align_intermeds && !params.skip_alignment
         index {
             path 'samplesheets/samplesheet_with_bams.csv'
-            header true
+            header(['sample', 'fastq_1', 'fastq_2', 'strandedness', 'seq_platform', 'seq_center', 'genome_bam', 'percent_mapped', 'transcriptome_bam'])
         }
     }
 
-    umi_dedup: Channel<Record> {
-        path { s ->
-            def dir      = alignedDir(s.meta.id)
+    umi_dedup: Channel<Tuple> {
+        path { meta, bam, bai, samtools, genomic_dedup_log, tsv, transcriptomic_dedup_log, prepare_for_rsem_log, _transcriptome_bam, t ->
+            // samtools: (stats, flagstat, idxstats); tsv: (edit_distance, per_umi, umi_per_position)
+            // t: (transcriptome_bam, dedup_bam, sorted_bam, sorted_bam_index, filtered_bam, samtools, tsv,
+            //     coord_sorted_bam, coord_sorted_bam_index, coord_sorted_samtools)
+            def dir      = alignedDir(meta.id)
             def stats    = "${dir}samtools_stats/"
             def umitools = "${dir}umitools/"
             def tool     = "${dir}${params.umi_dedup_tool}/"
             def saveBam  = params.save_align_intermeds || params.save_umi_intermeds
-            def t        = s.transcriptome
+            def t_samtools = nth(t, 5)
+            def t_tsv      = nth(t, 6)
+            def t_coord_samtools = nth(t, 9)
             [
-                ([s.samtools?.stats, s.samtools?.flagstat, s.samtools?.idxstats,
-                  t?.samtools?.stats, t?.samtools?.flagstat, t?.samtools?.idxstats]): stats,
-                ([s.bam, s.bai, t?.coord_sorted_bam, t?.coord_sorted_bam_index,
-                  t?.sorted_bam, t?.sorted_bam_index, t?.filtered_bam, t?.dedup_bam]): saveBam ? dir : null,
-                ([t?.coord_sorted_samtools?.stats, t?.coord_sorted_samtools?.flagstat,
-                  t?.coord_sorted_samtools?.idxstats]): saveBam ? stats : null,
-                ([s.tsv?.edit_distance, s.tsv?.per_umi, s.tsv?.umi_per_position,
-                  t?.tsv?.edit_distance, t?.tsv?.per_umi, t?.tsv?.umi_per_position]): umitools,
-                (s.prepare_for_rsem_log):        "${umitools}prepare_for_quantification_log/",
-                (s.genomic_dedup_log):           "${tool}genomic_dedup_log/",
-                (s.transcriptomic_dedup_log):    "${tool}transcriptomic_dedup_log/",
+                ([nth(samtools, 0), nth(samtools, 1), nth(samtools, 2),
+                  nth(t_samtools, 0), nth(t_samtools, 1), nth(t_samtools, 2)]): stats,
+                ([bam, bai, nth(t, 7), nth(t, 8),
+                  nth(t, 2), nth(t, 3), nth(t, 4), nth(t, 1)]): saveBam ? dir : null,
+                ([nth(t_coord_samtools, 0), nth(t_coord_samtools, 1),
+                  nth(t_coord_samtools, 2)]): saveBam ? stats : null,
+                ([nth(tsv, 0), nth(tsv, 1), nth(tsv, 2),
+                  nth(t_tsv, 0), nth(t_tsv, 1), nth(t_tsv, 2)]): umitools,
+                (prepare_for_rsem_log):        "${umitools}prepare_for_quantification_log/",
+                (genomic_dedup_log):           "${tool}genomic_dedup_log/",
+                (transcriptomic_dedup_log):    "${tool}transcriptomic_dedup_log/",
             ]
         }
     }
 
-    markdup: Channel<Record> {
-        path { s ->
-            def dir = alignedDir(s.meta.id)
+    markdup: Channel<Tuple> {
+        path { meta, bam, bai, cram, metrics, samtools ->
+            // samtools: (stats, flagstat, idxstats), null when RustQC replaces the stats
+            def dir = alignedDir(meta.id)
             [
-                ([s.bam, s.cram, s.bai]):                                           dir,
-                (s.metrics):                                                        "${dir}picard_metrics/",
-                ([s.samtools?.stats, s.samtools?.flagstat, s.samtools?.idxstats]): "${dir}samtools_stats/",
+                ([bam, cram, bai]):                                        dir,
+                (metrics):                                                 "${dir}picard_metrics/",
+                ([nth(samtools, 0), nth(samtools, 1), nth(samtools, 2)]): "${dir}samtools_stats/",
             ]
         }
     }
 
-    quant: Channel<Record> {
-        path { s ->
-            def dir = alignedDir(s.meta.id)
+    quant: Channel<Tuple> {
+        path { meta, counts_gene, counts_transcript, stat, log, _bam_star, _bam_genome, _bam_transcript ->
+            def dir = alignedDir(meta.id)
             [
-                ([s.counts_gene, s.counts_transcript, s.stat]): dir,
-                (s.log):                                        "${dir}log/",
+                ([counts_gene, counts_transcript, stat]): dir,
+                (log):                                    "${dir}log/",
             ]
         }
     }
 
-    quant_salmon: Channel<Record> {
-        path { s -> [(s.quant_dir): alignedDir(s.meta.id)] }
+    quant_salmon: Channel<Tuple> {
+        path { meta, quant_dir, _json_info, _lib_format_counts -> [(quant_dir): alignedDir(meta.id)] }
     }
 
-    quant_merged: Channel<Record> {   // never sample-prefixed except under --skip_quantification_merge
-        path { r ->
+    quant_merged: Channel<Tuple> {   // never sample-prefixed except under --skip_quantification_merge
+        path { meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript,
+               counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene ->
             def top = "${params.aligner}/"
-            def dir = "${samplePrefix(r.meta.id)}${top}"
+            def dir = "${samplePrefix(meta.id)}${top}"
             [
-                ([r.tpm_gene, r.counts_gene, r.lengths_gene, r.counts_gene_scaled,
-                  r.tpm_transcript, r.counts_transcript, r.lengths_transcript,
-                  r.tx2gene_augmented, r.merged_gene_rds, r.merged_transcript_rds]): dir,
-                (r.counts_gene_length_scaled): params.skip_quantification_merge ? null : top,
-                (r.tx2gene):                   top,
+                ([tpm_gene, counts_gene, lengths_gene, counts_gene_scaled,
+                  tpm_transcript, counts_transcript, lengths_transcript,
+                  tx2gene_augmented, merged_gene_rds, merged_transcript_rds]): dir,
+                (counts_gene_length_scaled): params.skip_quantification_merge ? null : top,
+                (tx2gene):                   top,
             ]
         }
     }
 
     // CUSTOM_RSEMMERGECOUNTS and tximport both write rsem.merged.* basenames, so they need separate targets (nextflow-io/nextflow#6617).
-    quant_rsem_merge: Channel<Record> {   // rsem_merge is non-null in every record
-        path { r ->
-            def m = r.rsem_merge
+    quant_rsem_merge: Channel<Tuple> {   // rsem_merge is non-null in every tuple
+        path { meta, rsem_merge ->
+            // rsem_merge: (counts_gene, tpm_gene, counts_transcript, tpm_transcript, genes_long, isoforms_long)
             [
-                ([m.counts_gene, m.tpm_gene, m.counts_transcript, m.tpm_transcript, m.genes_long, m.isoforms_long]): "${alignedDir(r.meta.id)}rsem_merge_counts/",
+                ([rsem_merge[0], rsem_merge[1], rsem_merge[2], rsem_merge[3], rsem_merge[4], rsem_merge[5]]): "${alignedDir(meta.id)}rsem_merge_counts/",
             ]
         }
     }
 
-    quant_pseudo: Channel<Record> {
-        path { s -> s.quant_dir >> "${samplePrefix(s.meta.id)}${params.pseudo_aligner}/" }
+    quant_pseudo: Channel<Tuple> {
+        path { meta, quant_dir, _json_info, _lib_format_counts -> quant_dir >> "${samplePrefix(meta.id)}${params.pseudo_aligner}/" }
     }
 
     // The Kallisto log lives inside quant_dir already and is not routed separately.
-    quant_pseudo_kallisto: Channel<Record> {
-        path { s -> s.quant_dir >> "${samplePrefix(s.meta.id)}${params.pseudo_aligner}/" }
+    quant_pseudo_kallisto: Channel<Tuple> {
+        path { meta, quant_dir, _json_info, _log -> quant_dir >> "${samplePrefix(meta.id)}${params.pseudo_aligner}/" }
     }
 
-    quant_merged_pseudo: Channel<Record> {
-        path { r ->
+    quant_merged_pseudo: Channel<Tuple> {
+        path { meta, tpm_gene, counts_gene, lengths_gene, counts_gene_length_scaled, counts_gene_scaled, tpm_transcript,
+               counts_transcript, lengths_transcript, tx2gene_augmented, merged_gene_rds, merged_transcript_rds, tx2gene ->
             def top = "${params.pseudo_aligner}/"
-            def dir = "${samplePrefix(r.meta.id)}${top}"
+            def dir = "${samplePrefix(meta.id)}${top}"
             [
-                ([r.tpm_gene, r.counts_gene, r.lengths_gene, r.counts_gene_scaled,
-                  r.tpm_transcript, r.counts_transcript, r.lengths_transcript,
-                  r.tx2gene_augmented, r.merged_gene_rds, r.merged_transcript_rds]): dir,
-                (r.counts_gene_length_scaled): params.skip_quantification_merge ? null : top,
-                (r.tx2gene):                   top,
+                ([tpm_gene, counts_gene, lengths_gene, counts_gene_scaled,
+                  tpm_transcript, counts_transcript, lengths_transcript,
+                  tx2gene_augmented, merged_gene_rds, merged_transcript_rds]): dir,
+                (counts_gene_length_scaled): params.skip_quantification_merge ? null : top,
+                (tx2gene):                   top,
             ]
         }
     }
 
-    deseq2: Channel<Record> {   // never sample-prefixed
-        path { d ->
-            [([d.rdata, d.pca_vals, d.plots_pdf, d.sample_dists, d.size_factors, d.log]): "${params.aligner}/deseq2_qc/"]
+    deseq2: Channel<Tuple> {   // never sample-prefixed
+        path { _meta, rdata, pca_vals, plots_pdf, sample_dists, size_factors, log, _pca_multiqc, _dists_multiqc ->
+            [([rdata, pca_vals, plots_pdf, sample_dists, size_factors, log]): "${params.aligner}/deseq2_qc/"]
         }
     }
 
-    deseq2_pseudo: Channel<Record> {   // never sample-prefixed
-        path { d ->
-            [([d.rdata, d.pca_vals, d.plots_pdf, d.sample_dists, d.size_factors, d.log]): "${params.pseudo_aligner}/deseq2_qc/"]
+    deseq2_pseudo: Channel<Tuple> {   // never sample-prefixed
+        path { _meta, rdata, pca_vals, plots_pdf, sample_dists, size_factors, log, _pca_multiqc, _dists_multiqc ->
+            [([rdata, pca_vals, plots_pdf, sample_dists, size_factors, log]): "${params.pseudo_aligner}/deseq2_qc/"]
         }
     }
 
-    bam_qc: Channel<Record> {
+    bam_qc: Channel<Tuple> {
         enabled defineQcTools(params).size() > 0   // same check that decides whether any of these tools ran
-        path { s ->
-            def dir      = alignedDir(s.meta.id)
-            def dupradar = "${dir}dupradar/"
-            def rseqc    = "${dir}rseqc/"
-            def annDir   = "${rseqc}junction_annotation/"
-            def satDir   = "${rseqc}junction_saturation/"
-            def rdupDir  = "${rseqc}read_duplication/"
-            def innerDir = "${rseqc}inner_distance/"
-            def rq       = s.rseqc
+        path { meta, preseq, featurecounts, biotype, qualimap, dupradar, rseqc, _mqc_files ->
+            // preseq: (lc_extrap, log); featurecounts: (counts, summary); biotype: (tsv, rrna)
+            // dupradar: (scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc, session_info)
+            // rseqc: (bamstat, inferexperiment, innerdistance, junctionannotation, junctionsaturation,
+            //         readdistribution, readduplication, tin), its nested groups laid out below
+            def dir      = alignedDir(meta.id)
+            def dupDir   = "${dir}dupradar/"
+            def rseqcDir = "${dir}rseqc/"
+            def annDir   = "${rseqcDir}junction_annotation/"
+            def satDir   = "${rseqcDir}junction_saturation/"
+            def rdupDir  = "${rseqcDir}read_duplication/"
+            def innerDir = "${rseqcDir}inner_distance/"
+            def inner    = nth(rseqc, 2)   // (distance, freq, mean, pdf, rscript)
+            def ann      = nth(rseqc, 3)   // (bed, interact_bed, xls, pdf, events_pdf, rscript, log)
+            def sat      = nth(rseqc, 4)   // (pdf, rscript)
+            def rdup     = nth(rseqc, 6)   // (seq_xls, pos_xls, pdf, rscript)
+            def tin      = nth(rseqc, 7)   // (txt, xls)
             [
-                (s.preseq?.lc_extrap):          "${dir}preseq/",
-                (s.preseq?.log):                "${dir}preseq/log/",
-                ([s.featurecounts?.counts, s.featurecounts?.summary, s.biotype?.tsv, s.biotype?.rrna]): "${dir}featurecounts/",
-                (s.qualimap):                   "${dir}qualimap/",
-                (s.dupradar?.scatter2d):        "${dupradar}scatter_plot/",
-                (s.dupradar?.boxplot):          "${dupradar}box_plot/",
-                (s.dupradar?.hist):             "${dupradar}histogram/",
-                (s.dupradar?.dupmatrix):        "${dupradar}gene_data/",
-                (s.dupradar?.intercept_slope):  "${dupradar}intercepts_slope/",
-                (rq?.bamstat):                  "${rseqc}bam_stat/",
-                (rq?.inferexperiment):          "${rseqc}infer_experiment/",
-                ([rq?.junctionannotation?.pdf, rq?.junctionannotation?.events_pdf]):  "${annDir}pdf/",
-                ([rq?.junctionannotation?.bed, rq?.junctionannotation?.interact_bed]): "${annDir}bed/",
-                (rq?.junctionannotation?.xls):     "${annDir}xls/",
-                (rq?.junctionannotation?.log):     "${annDir}log/",
-                (rq?.junctionannotation?.rscript): "${annDir}rscript/",
-                (rq?.junctionsaturation?.pdf):     "${satDir}pdf/",
-                (rq?.junctionsaturation?.rscript): "${satDir}rscript/",
-                (rq?.readdistribution):            "${rseqc}read_distribution/",
-                (rq?.readduplication?.pdf):        "${rdupDir}pdf/",
-                ([rq?.readduplication?.seq_xls, rq?.readduplication?.pos_xls]): "${rdupDir}xls/",
-                (rq?.readduplication?.rscript):    "${rdupDir}rscript/",
-                ([rq?.innerdistance?.distance, rq?.innerdistance?.freq, rq?.innerdistance?.mean]): "${innerDir}txt/",
-                (rq?.innerdistance?.pdf):          "${innerDir}pdf/",
-                (rq?.innerdistance?.rscript):      "${innerDir}rscript/",
-                ([rq?.tin?.txt, rq?.tin?.xls]):    "${rseqc}tin/",
+                (nth(preseq, 0)):               "${dir}preseq/",
+                (nth(preseq, 1)):               "${dir}preseq/log/",
+                ([nth(featurecounts, 0), nth(featurecounts, 1), nth(biotype, 0), nth(biotype, 1)]): "${dir}featurecounts/",
+                (qualimap):                     "${dir}qualimap/",
+                (nth(dupradar, 0)):             "${dupDir}scatter_plot/",
+                (nth(dupradar, 1)):             "${dupDir}box_plot/",
+                (nth(dupradar, 2)):             "${dupDir}histogram/",
+                (nth(dupradar, 3)):             "${dupDir}gene_data/",
+                (nth(dupradar, 4)):             "${dupDir}intercepts_slope/",
+                (nth(rseqc, 0)):                "${rseqcDir}bam_stat/",
+                (nth(rseqc, 1)):                "${rseqcDir}infer_experiment/",
+                ([nth(ann, 3), nth(ann, 4)]):   "${annDir}pdf/",
+                ([nth(ann, 0), nth(ann, 1)]):   "${annDir}bed/",
+                (nth(ann, 2)):                  "${annDir}xls/",
+                (nth(ann, 6)):                  "${annDir}log/",
+                (nth(ann, 5)):                  "${annDir}rscript/",
+                (nth(sat, 0)):                  "${satDir}pdf/",
+                (nth(sat, 1)):                  "${satDir}rscript/",
+                (nth(rseqc, 5)):                "${rseqcDir}read_distribution/",
+                (nth(rdup, 2)):                 "${rdupDir}pdf/",
+                ([nth(rdup, 0), nth(rdup, 1)]): "${rdupDir}xls/",
+                (nth(rdup, 3)):                 "${rdupDir}rscript/",
+                ([nth(inner, 0), nth(inner, 1), nth(inner, 2)]): "${innerDir}txt/",
+                (nth(inner, 3)):                "${innerDir}pdf/",
+                (nth(inner, 4)):                "${innerDir}rscript/",
+                ([nth(tin, 0), nth(tin, 1)]):   "${rseqcDir}tin/",
             ]
         }
     }
 
-    bam_qc_rustqc: Channel<Record> {   // never sample-prefixed
-        path { s ->
+    bam_qc_rustqc: Channel<Tuple> {   // never sample-prefixed
+        path { _meta, samtools, preseq_lc_extrap, dupradar, featurecounts, biotype, rseqc, qualimap, _all_files ->
+            // samtools: (stats, flagstat, idxstats); dupradar: (scatter2d, boxplot, hist, dupmatrix, intercept_slope, multiqc)
+            // featurecounts: (counts, summary); biotype: (tsv, mqc, rrna)
+            // rseqc: (bamstat, inferexperiment, readdistribution, tin, innerdistance, junctionannotation,
+            //         junctionsaturation, readduplication), its nested groups laid out below
             def dir      = "${params.aligner}/rustqc/"
-            def dupradar = "${dir}dupradar/"
+            def dupDir   = "${dir}dupradar/"
             def fcDir    = "${dir}featurecounts/"
-            def rseqc    = "${dir}rseqc/"
-            def annDir   = "${rseqc}junction_annotation/"
-            def satDir   = "${rseqc}junction_saturation/"
-            def rdupDir  = "${rseqc}read_duplication/"
-            def innerDir = "${rseqc}inner_distance/"
-            def rq       = s.rseqc
+            def rseqcDir = "${dir}rseqc/"
+            def annDir   = "${rseqcDir}junction_annotation/"
+            def satDir   = "${rseqcDir}junction_saturation/"
+            def rdupDir  = "${rseqcDir}read_duplication/"
+            def innerDir = "${rseqcDir}inner_distance/"
+            def tin      = nth(rseqc, 3)   // (txt, xls)
+            def inner    = nth(rseqc, 4)   // (distance, freq, mean, summary, plot, rscript)
+            def ann      = nth(rseqc, 5)   // (bed, interact_bed, xls, log, plot, rscript)
+            def sat      = nth(rseqc, 6)   // (summary, plot, rscript)
+            def rdup     = nth(rseqc, 7)   // (seq_xls, pos_xls, plot, rscript)
+            def fcSummary = nth(featurecounts, 1) as Path?
             [
-                ([s.samtools?.stats, s.samtools?.flagstat, s.samtools?.idxstats]): "${dir}samtools_stats/",
-                (s.preseq?.lc_extrap):          "${dir}preseq/",
-                (s.dupradar?.scatter2d):        "${dupradar}scatter_plot/",
-                (s.dupradar?.boxplot):          "${dupradar}box_plot/",
-                (s.dupradar?.hist):             "${dupradar}histogram/",
-                (s.dupradar?.dupmatrix):        "${dupradar}gene_data/",
-                (s.dupradar?.intercept_slope):  "${dupradar}intercepts_slope/",
-                (s.dupradar?.multiqc):          dupradar,
-                ([s.featurecounts?.counts, s.biotype?.tsv, s.biotype?.mqc, s.biotype?.rrna]): fcDir,
+                ([nth(samtools, 0), nth(samtools, 1), nth(samtools, 2)]): "${dir}samtools_stats/",
+                (preseq_lc_extrap):             "${dir}preseq/",
+                (nth(dupradar, 0)):             "${dupDir}scatter_plot/",
+                (nth(dupradar, 1)):             "${dupDir}box_plot/",
+                (nth(dupradar, 2)):             "${dupDir}histogram/",
+                (nth(dupradar, 3)):             "${dupDir}gene_data/",
+                (nth(dupradar, 4)):             "${dupDir}intercepts_slope/",
+                (nth(dupradar, 5)):             dupDir,
+                ([nth(featurecounts, 0), nth(biotype, 0), nth(biotype, 1), nth(biotype, 2)]): fcDir,
                 // Published under the name featureCounts gives its non-biotype summary
-                (s.featurecounts?.summary):     "${fcDir}${s.featurecounts?.summary?.name?.replace('.biotype.tsv.summary', '.tsv.summary')}",
-                (s.qualimap):                   "${dir}qualimap/",
-                (rq?.bamstat):                  "${rseqc}bam_stat/",
-                (rq?.inferexperiment):          "${rseqc}infer_experiment/",
-                (rq?.readdistribution):         "${rseqc}read_distribution/",
-                ([rq?.tin?.txt, rq?.tin?.xls]): "${rseqc}tin/",
-                ([rq?.junctionannotation?.bed, rq?.junctionannotation?.interact_bed]): "${annDir}bed/",
-                (rq?.junctionannotation?.xls):     "${annDir}xls/",
-                (rq?.junctionannotation?.log):     "${annDir}log/",
-                (rq?.junctionannotation?.plot):    "${annDir}plot/",
-                (rq?.junctionannotation?.rscript): "${annDir}rscript/",
-                (rq?.junctionsaturation?.summary): "${satDir}txt/",
-                (rq?.junctionsaturation?.plot):    "${satDir}plot/",
-                (rq?.junctionsaturation?.rscript): "${satDir}rscript/",
-                ([rq?.readduplication?.seq_xls, rq?.readduplication?.pos_xls]): "${rdupDir}xls/",
-                (rq?.readduplication?.plot):       "${rdupDir}plot/",
-                (rq?.readduplication?.rscript):    "${rdupDir}rscript/",
-                ([rq?.innerdistance?.distance, rq?.innerdistance?.freq, rq?.innerdistance?.mean, rq?.innerdistance?.summary]): "${innerDir}txt/",
-                (rq?.innerdistance?.plot):         "${innerDir}plot/",
-                (rq?.innerdistance?.rscript):      "${innerDir}rscript/",
+                (fcSummary):                    "${fcDir}${fcSummary?.name?.replace('.biotype.tsv.summary', '.tsv.summary')}",
+                (qualimap):                     "${dir}qualimap/",
+                (nth(rseqc, 0)):                "${rseqcDir}bam_stat/",
+                (nth(rseqc, 1)):                "${rseqcDir}infer_experiment/",
+                (nth(rseqc, 2)):                "${rseqcDir}read_distribution/",
+                ([nth(tin, 0), nth(tin, 1)]):   "${rseqcDir}tin/",
+                ([nth(ann, 0), nth(ann, 1)]):   "${annDir}bed/",
+                (nth(ann, 2)):                  "${annDir}xls/",
+                (nth(ann, 3)):                  "${annDir}log/",
+                (nth(ann, 4)):                  "${annDir}plot/",
+                (nth(ann, 5)):                  "${annDir}rscript/",
+                (nth(sat, 0)):                  "${satDir}txt/",
+                (nth(sat, 1)):                  "${satDir}plot/",
+                (nth(sat, 2)):                  "${satDir}rscript/",
+                ([nth(rdup, 0), nth(rdup, 1)]): "${rdupDir}xls/",
+                (nth(rdup, 2)):                 "${rdupDir}plot/",
+                (nth(rdup, 3)):                 "${rdupDir}rscript/",
+                ([nth(inner, 0), nth(inner, 1), nth(inner, 2), nth(inner, 3)]): "${innerDir}txt/",
+                (nth(inner, 4)):                "${innerDir}plot/",
+                (nth(inner, 5)):                "${innerDir}rscript/",
             ]
         }
     }
 
-    multiqc: Channel<Record> {
-        path { m ->
-            [([m.report, m.data, m.plots]): "${samplePrefix(m.meta.id)}multiqc${params.skip_alignment ? '' : "/${params.aligner}"}/"]
+    multiqc: Channel<Tuple> {
+        path { meta, report, data, plots ->
+            [([report, data, plots]): "${samplePrefix(meta.id)}multiqc${params.skip_alignment ? '' : "/${params.aligner}"}/"]
         }
     }
 
-    pipeline_info: Channel<Record> {
-        path { p -> p.versions >> 'pipeline_info/' }
+    pipeline_info: Channel<Path> {
+        path { versions -> versions >> 'pipeline_info/' }
     }
 }
 

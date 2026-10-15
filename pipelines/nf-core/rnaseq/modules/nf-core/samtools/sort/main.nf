@@ -10,8 +10,8 @@ process SAMTOOLS_SORT {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    record(
-        meta:         Record,
+    tuple(
+        meta:         Map,
         raw_bams:     List<Path>,
         fasta:        Path?,
         fai:          Path?,
@@ -22,14 +22,15 @@ process SAMTOOLS_SORT {
     stageAs raw_bams, '?/*'
 
     output:
-    record(
-        meta: meta,
-        bam:  file("${prefix}.bam", optional: true),
-        cram: file("${prefix}.cram", optional: true),
-        sam:  file("${prefix}.sam", optional: true),
-        bai:  file("${prefix}.{bam,cram,sam}.bai", optional: true),
-        csi:  file("${prefix}.{bam,cram,sam}.csi", optional: true),
-        crai: file("${prefix}.{bam,cram,sam}.crai", optional: true)
+    // (meta, bam, cram, sam, bai, csi, crai)
+    tuple(
+        meta,
+        file("${prefix}.bam", optional: true),
+        file("${prefix}.cram", optional: true),
+        file("${prefix}.sam", optional: true),
+        file("${prefix}.{bam,cram,sam}.bai", optional: true),
+        file("${prefix}.{bam,cram,sam}.csi", optional: true),
+        file("${prefix}.{bam,cram,sam}.crai", optional: true)
     )
 
     topic:

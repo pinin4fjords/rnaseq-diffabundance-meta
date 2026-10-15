@@ -11,8 +11,8 @@ process DESEQ2_QC {
         'community.wave.seqera.io/library/r-base_r-optparse_r-ggplot2_r-rcolorbrewer_pruned:9e75394d0bc21987' }"
 
     input:
-    record(
-        meta:                      Record,
+    tuple(
+        meta:                      Map,
         counts_gene_length_scaled: Path,
         args:                      String?,
         label:                     String?,
@@ -21,16 +21,17 @@ process DESEQ2_QC {
     )
 
     output:
-    record(
-        meta:          meta,
-        rdata:         file('*.RData',               optional: true),
-        pca_vals:      file('*pca.vals.txt',         optional: true),
-        plots_pdf:     file('*.pdf',                 optional: true),
-        sample_dists:  file('*sample.dists.txt',     optional: true),
-        size_factors:  file('size_factors',          optional: true),
-        log:           file('*.log',                 optional: true),
-        pca_multiqc:   file('*pca.vals_mqc.tsv',     optional: true),
-        dists_multiqc: file('*sample.dists_mqc.tsv', optional: true)
+    // (meta, rdata, pca_vals, plots_pdf, sample_dists, size_factors, log, pca_multiqc, dists_multiqc)
+    tuple(
+        meta,
+        file('*.RData',               optional: true),
+        file('*pca.vals.txt',         optional: true),
+        file('*.pdf',                 optional: true),
+        file('*sample.dists.txt',     optional: true),
+        file('size_factors',          optional: true),
+        file('*.log',                 optional: true),
+        file('*pca.vals_mqc.tsv',     optional: true),
+        file('*sample.dists_mqc.tsv', optional: true)
     )
 
     topic:

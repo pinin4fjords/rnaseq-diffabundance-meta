@@ -10,15 +10,16 @@ process STAR_GENOMEGENERATE {
         'community.wave.seqera.io/library/htslib_samtools_star_gawk:ae438e9a604351a4' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         fasta: Path,
         args:  String?,
         gtf:   Path?
     )
 
     output:
-    record(meta: meta, index: file('star'))
+    // (meta, index)
+    tuple(meta, file('star'))
 
     topic:
     tuple(task.process, 'star', eval('STAR --version | sed -e "s/STAR_//g"')) >> 'versions'

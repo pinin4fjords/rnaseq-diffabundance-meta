@@ -10,8 +10,8 @@ process KALLISTO_QUANT {
         'community.wave.seqera.io/library/kallisto:0.52.0--31c771060d82d25c' }"
 
     input:
-    record(
-        meta:               Record,
+    tuple(
+        meta:               Map,
         reads:              List<Path>,
         index:              Path,
         gtf:                Path?,
@@ -22,11 +22,12 @@ process KALLISTO_QUANT {
     )
 
     output:
-    record(
-        meta:      meta,
-        quant_dir: file("${prefix}"),
-        json_info: file("*.run_info.json"),
-        log:       file("*.log")
+    // (meta, quant_dir, json_info, log)
+    tuple(
+        meta,
+        file("${prefix}"),
+        file("*.run_info.json"),
+        file("*.log")
     )
 
     topic:

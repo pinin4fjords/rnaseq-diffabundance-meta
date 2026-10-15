@@ -11,17 +11,18 @@ process UMITOOLS_EXTRACT {
         'community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>,
         args:  String?
     )
 
     output:
-    record(
-        meta:  meta,
-        reads: files('*.fastq.gz').toSorted { f -> f.name },
-        log:   file('*.log')
+    // (meta, reads, log)
+    tuple(
+        meta,
+        files('*.fastq.gz').toSorted { f -> f.name },
+        file('*.log')
     )
 
     topic:

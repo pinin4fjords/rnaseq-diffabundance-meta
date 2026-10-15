@@ -10,13 +10,14 @@ process FQ_SUBSAMPLE {
         'quay.io/biocontainers/fq:0.12.0--h9ee0642_0' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>
     )
 
     output:
-    record(meta: meta, reads: files("*.fastq.gz").toSorted { f -> f.name })
+    // (meta, reads)
+    tuple(meta, files("*.fastq.gz").toSorted { f -> f.name })
 
     topic:
     tuple(task.process, 'fq', eval("fq subsample --version | sed 's/fq-subsample //; s/ .*//'")) >> 'versions'

@@ -11,22 +11,23 @@ process SENTIEON_RSEMCALCULATEEXPRESSION {
         'community.wave.seqera.io/library/rsem_sentieon:3e4315fa0b636313' }"
 
     input:
-    record(
-        meta:  Record,
+    tuple(
+        meta:  Map,
         reads: List<Path>,
         index: Path
     )
 
     output:
-    record(
-        meta:              meta,
-        counts_gene:       file("*.genes.results"),
-        counts_transcript: file("*.isoforms.results"),
-        stat:              file("*.stat"),
-        log:               file("*.log", optional: true),
-        bam_star:          file("*.STAR.genome.bam", optional: true),
-        bam_genome:        file("${prefix}.genome.bam", optional: true),
-        bam_transcript:    file("${prefix}.transcript.bam", optional: true)
+    // (meta, counts_gene, counts_transcript, stat, log, bam_star, bam_genome, bam_transcript)
+    tuple(
+        meta,
+        file("*.genes.results"),
+        file("*.isoforms.results"),
+        file("*.stat"),
+        file("*.log", optional: true),
+        file("*.STAR.genome.bam", optional: true),
+        file("${prefix}.genome.bam", optional: true),
+        file("${prefix}.transcript.bam", optional: true)
     )
 
     topic:

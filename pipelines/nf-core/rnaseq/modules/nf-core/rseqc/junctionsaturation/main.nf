@@ -10,18 +10,19 @@ process RSEQC_JUNCTIONSATURATION {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    record(
-        meta: Record,
+    tuple(
+        meta: Map,
         bam:  Path,
         bai:  Path,
         bed:  Path
     )
 
     output:
-    record(
-        meta:    meta,
-        pdf:     file("*.pdf"),
-        rscript: file("*.r")
+    // (meta, pdf, rscript)
+    tuple(
+        meta,
+        file("*.pdf"),
+        file("*.r")
     )
 
     topic:

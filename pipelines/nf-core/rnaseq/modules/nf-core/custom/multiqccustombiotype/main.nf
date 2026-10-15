@@ -10,17 +10,18 @@ process CUSTOM_MULTIQCCUSTOMBIOTYPE {
         'quay.io/biocontainers/python:3.12.12' }"
 
     input:
-    record(
-        meta:   Record,
+    tuple(
+        meta:   Map,
         counts: Path,
         header: Path
     )
 
     output:
-    record(
-        meta: meta,
-        tsv:  file('*biotype_counts_mqc.tsv'),
-        rrna: file('*biotype_counts_rrna_mqc.tsv')
+    // (meta, tsv, rrna)
+    tuple(
+        meta,
+        file('*biotype_counts_mqc.tsv'),
+        file('*biotype_counts_rrna_mqc.tsv')
     )
 
     topic:

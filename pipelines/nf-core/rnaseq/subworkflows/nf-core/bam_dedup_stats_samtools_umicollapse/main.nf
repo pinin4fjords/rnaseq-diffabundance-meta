@@ -21,7 +21,7 @@ def umicollapseArgs(grouping_method: String?, umi_separator: String?, single_end
 
 workflow BAM_DEDUP_STATS_SAMTOOLS_UMICOLLAPSE {
     take:
-    ch_bam_bai: Channel<Record>
+    ch_bam: Channel<Tuple> // (meta, bam)
     tool_args: Record // samtools_index: samtools index options
     grouping_method: String? // UMI grouping method
     umi_separator: String? // UMI separator
@@ -30,16 +30,25 @@ workflow BAM_DEDUP_STATS_SAMTOOLS_UMICOLLAPSE {
     //
     // umicollapse in bam mode (thus hardcode mode input to 'bam')
     //
-    ch_dedup = UMICOLLAPSE(ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam, args: umicollapseArgs(grouping_method, umi_separator, r.meta.single_end), mode: 'bam') })
-        .filter { r -> r.bam != null }
+    // (meta, bam, log)
+    ch_dedup = UMICOLLAPSE(ch_bam.map { meta, bam -> tuple(meta, bam, umicollapseArgs(grouping_method, umi_separator, meta.single_end), 'bam') })
+        .filter { _meta, bam, _fastq, _log -> bam != null }
+        .map { meta, bam, _fastq, log -> tuple(meta, bam, log) }
 
     //
     // Index BAM file and run samtools stats, flagstat and idxstats
     //
-    ch_index = SAMTOOLS_INDEX(ch_dedup.map { r -> record(meta: r.meta, bam: r.bam, args: tool_args.samtools_index) })
-    ch_indexed = ch_dedup.join(ch_index, by: 'meta')
+    ch_index = SAMTOOLS_INDEX(ch_dedup.map { meta, bam, _log -> tuple(meta, bam, tool_args.samtools_index) })
+    // (meta, bam, bai, log)
+    ch_indexed = ch_dedup
+        .join(ch_index, by: 0)
+        .map { meta, bam, log, bai -> tuple(meta, bam, bai, log) }
 
-    ch_results = ch_indexed.join(BAM_STATS_SAMTOOLS(ch_indexed, null, null), by: 'meta')
+    // (meta, bam, bai, log, samtools(stats, flagstat, idxstats))
+    ch_results = ch_indexed.join(
+        BAM_STATS_SAMTOOLS(ch_indexed.map { meta, bam, bai, _log -> tuple(meta, bam, bai) }, channel.value(null as Path?), channel.value(null as Path?)),
+        by: 0
+    )
 
     emit:
     ch_results

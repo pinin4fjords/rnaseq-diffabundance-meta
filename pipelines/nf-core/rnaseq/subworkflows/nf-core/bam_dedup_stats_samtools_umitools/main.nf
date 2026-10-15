@@ -23,7 +23,7 @@ def umitoolsDedupArgs(grouping_method, umi_separator, meta) {
 
 workflow BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS {
     take:
-    ch_bam_bai: Channel<Record>
+    ch_bam_bai: Channel<Tuple> // (meta, bam, bai)
     val_get_dedup_stats: Boolean
     val_primary_only: Boolean
     tool_args: Record // samtools_index: samtools index options
@@ -35,33 +35,44 @@ workflow BAM_DEDUP_STATS_SAMTOOLS_UMITOOLS {
     //
     // Optionally filter to primary alignments before deduplication
     //
+    // ch_dedup_input: (meta, bam, bai)
     if (val_primary_only) {
+        // (meta, bam)
         ch_primary = SAMTOOLS_VIEW_PRIMARY(
-            ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, fasta: null, fai: null, qname: null, bed: null, index_format: '') }
-        ).filter { r -> r.bam != null }
+            ch_bam_bai.map { meta, bam, bai -> tuple(meta, bam, bai, null, null, null, null, '') }
+        )
+            .filter { _meta, bam, _bai, _unselected, _unselected_index -> bam != null }
+            .map { meta, bam, _bai, _unselected, _unselected_index -> tuple(meta, bam) }
 
         ch_dedup_input = ch_primary
-            .map { r -> record(meta: r.meta, bam: r.bam) }
-            .join(SAMTOOLS_INDEX_PRIMARY(ch_primary.map { r -> record(meta: r.meta, bam: r.bam, args: tool_args.samtools_index) }), by: 'meta')
+            .join(SAMTOOLS_INDEX_PRIMARY(ch_primary.map { meta, bam -> tuple(meta, bam, tool_args.samtools_index) }), by: 0)
     }
     else {
-        ch_dedup_input = ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai) }
+        ch_dedup_input = ch_bam_bai
     }
 
     //
     // UMI-tools dedup
     //
+    // (meta, bam, log, tsv_edit_distance, tsv_per_umi, tsv_umi_per_position)
     ch_dedup = UMITOOLS_DEDUP(
-        ch_dedup_input.map { r -> record(meta: r.meta, bam: r.bam, bai: r.bai, args: umitoolsDedupArgs(grouping_method, umi_separator, r.meta), get_output_stats: val_get_dedup_stats) }
+        ch_dedup_input.map { meta, bam, bai -> tuple(meta, bam, bai, umitoolsDedupArgs(grouping_method, umi_separator, meta), val_get_dedup_stats) }
     )
 
     //
     // Index BAM file and run samtools stats, flagstat and idxstats
     //
-    ch_index = SAMTOOLS_INDEX(ch_dedup.map { r -> record(meta: r.meta, bam: r.bam, args: tool_args.samtools_index) })
-    ch_indexed = ch_dedup.join(ch_index, by: 'meta')
+    ch_index = SAMTOOLS_INDEX(ch_dedup.map { meta, bam, _log, _ed, _pu, _upp -> tuple(meta, bam, tool_args.samtools_index) })
+    // (meta, bam, bai, log, tsv_edit_distance, tsv_per_umi, tsv_umi_per_position)
+    ch_indexed = ch_dedup
+        .join(ch_index, by: 0)
+        .map { meta, bam, log, ed, pu, upp, bai -> tuple(meta, bam, bai, log, ed, pu, upp) }
 
-    ch_results = ch_indexed.join(BAM_STATS_SAMTOOLS(ch_indexed, null, null), by: 'meta')
+    // (meta, bam, bai, log, tsv_edit_distance, tsv_per_umi, tsv_umi_per_position, samtools(stats, flagstat, idxstats))
+    ch_results = ch_indexed.join(
+        BAM_STATS_SAMTOOLS(ch_indexed.map { meta, bam, bai, _log, _ed, _pu, _upp -> tuple(meta, bam, bai) }, channel.value(null as Path?), channel.value(null as Path?)),
+        by: 0
+    )
 
     emit:
     ch_results
