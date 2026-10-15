@@ -258,7 +258,7 @@ def kallistoIndexArgs(params) {
     return params.pseudo_aligner_kmer_size ? "-k ${params.pseudo_aligner_kmer_size}" : ''
 }
 
-// All the tool arguments that follow from the params and do not depend on the sample, as a ToolArgs record.
+// All the tool arguments that follow from the params and do not depend on the sample, as one record.
 // The Salmon index of the strandedness inference does not take the extra index options; se_prefix is set
 // per call by the quantification that uses it.
 def toolArgs(params) {

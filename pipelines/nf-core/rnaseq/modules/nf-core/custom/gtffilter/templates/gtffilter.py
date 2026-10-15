@@ -119,9 +119,9 @@ def filter_gtf(fasta: str | None, gtf_in: str, filtered_gtf_out: str, skip_trans
 
 parser = argparse.ArgumentParser()
 parser.add_argument("--skip_transcript_id_check", action="store_true", default=False)
-parsed_args = parser.parse_args("${args}".split() if "${args}".strip() else [])
+parsed_args = parser.parse_args("${tool_args}".split() if "${tool_args}".strip() else [])
 
-filter_gtf("${fasta}", "${sample.gtf}", "${task.ext.prefix ?: sample.meta.id}.gtf${sample.gtf.extension == 'gz' ? '.gz' : ''}", parsed_args.skip_transcript_id_check)
+filter_gtf("${fasta}", "${gtf}", "${task.ext.prefix ?: meta.id}.gtf${gtf.extension == 'gz' ? '.gz' : ''}", parsed_args.skip_transcript_id_check)
 
 # Versions
 

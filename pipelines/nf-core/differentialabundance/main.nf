@@ -23,13 +23,6 @@ include { PIPELINE_COMPLETION     } from './subworkflows/local/utils_nfcore_diff
 include { getGenomeAttribute      } from './subworkflows/local/utils_nfcore_differentialabundance_pipeline'
 include { buildParamset           } from './subworkflows/local/utils_nfcore_differentialabundance_pipeline'
 
-// A file or set of files that the pipeline publishes, with the name that decides where it goes
-record Published {
-    name:  String
-    meta:  Map
-    files: List<Path>
-}
-
 /*
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
     PARAMETERS
@@ -406,8 +399,8 @@ workflow {
     ch_pub_report = abundance.report_html.map { meta, file -> record(name: 'report_html', meta: meta, files: [file].flatten()) }
         .mix(abundance.report_bundle.map          { meta, file -> record(name: 'report_bundle', meta: meta, files: [file].flatten()) })
 
-    ch_pub_versions = abundance.nfcore_versions.map { file -> record(name: 'versions', meta: [:], files: [file].flatten()) }
-        .mix(abundance.collated_versions.map      { file -> record(name: 'collated_versions', meta: [:], files: [file].flatten()) })
+    ch_pub_versions = abundance.nfcore_versions.map { file -> record(name: 'versions', meta: record(), files: [file].flatten()) }
+        .mix(abundance.collated_versions.map      { file -> record(name: 'collated_versions', meta: record(), files: [file].flatten()) })
 
     // The files of propd and grea go in folders named after the run, without the paramset
     ch_pub_propd = abundance.propd_results.map  { meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
@@ -417,10 +410,10 @@ workflow {
         .mix(abundance.propd_genewise_plot.map     { meta, file -> record(name: 'genewise_plot', meta: meta, files: [file].flatten()) })
         .mix(abundance.propd_rdata.map             { meta, file -> record(name: 'rdata', meta: meta, files: [file].flatten()) })
         .mix(abundance.propd_adjacency.map         { meta, file -> record(name: 'adjacency', meta: meta, files: [file].flatten()) })
-        .mix(abundance.propd_session_info.map      { file -> record(name: 'session_info', meta: [id: file.name.replace('.R_sessionInfo.log', '')], files: [file].flatten()) })
+        .mix(abundance.propd_session_info.map      { file -> record(name: 'session_info', meta: record(id: file.name.replace('.R_sessionInfo.log', '')), files: [file].flatten()) })
 
     ch_pub_grea = abundance.grea_results.map { meta, file -> record(name: 'results', meta: meta, files: [file].flatten()) }
-        .mix(abundance.grea_session_info.map { file -> record(name: 'session_info', meta: [id: file.name.replace('.R_sessionInfo.log', '')], files: [file].flatten()) })
+        .mix(abundance.grea_session_info.map { file -> record(name: 'session_info', meta: record(id: file.name.replace('.R_sessionInfo.log', '')), files: [file].flatten()) })
 
     publish:
     preprocessing = ch_pub_preprocessing
@@ -440,7 +433,7 @@ workflow {
 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
 */
 
-def preprocessingTarget(r: Published) -> String {
+def preprocessingTarget(r: Record) -> String {
     def folder = [
         // AFFY
         affy_raw_expression        : 'tables/processed_abundance',
@@ -472,7 +465,7 @@ def preprocessingTarget(r: Published) -> String {
     return target
 }
 
-def differentialTarget(r: Published) -> String {
+def differentialTarget(r: Record) -> String {
     def folder = [
         results                    : 'tables/differential',
         results_filtered           : 'tables/differential',
@@ -488,7 +481,7 @@ def differentialTarget(r: Published) -> String {
     return "${folder}/${r.meta.paramset_name}/"
 }
 
-def propdTarget(r: Published) -> String {
+def propdTarget(r: Record) -> String {
     def folder = [
         results           : 'tables/differential',
         pairwise          : 'tables/differential',
@@ -502,7 +495,7 @@ def propdTarget(r: Published) -> String {
     return "${folder}/"
 }
 
-def greaTarget(r: Published) -> String {
+def greaTarget(r: Record) -> String {
     def folder = [
         results      : "tables/functional/grea/${r.meta.id}",
         session_info : "other/grea/${r.meta.id}"
@@ -510,7 +503,7 @@ def greaTarget(r: Published) -> String {
     return "${folder}/"
 }
 
-def functionalTarget(r: Published) -> String {
+def functionalTarget(r: Record) -> String {
     def method = r.meta.params.functional_method
     def folder = [
         // GSEA
@@ -560,7 +553,7 @@ def functionalTarget(r: Published) -> String {
     return target
 }
 
-def plottingTarget(r: Published) -> String {
+def plottingTarget(r: Record) -> String {
     def folder = [
         exploratory           : 'plots/exploratory',
         differential_volcanos : 'plots/differential',
@@ -569,31 +562,31 @@ def plottingTarget(r: Published) -> String {
 }
 
 output {
-    preprocessing: Channel<Published> {
+    preprocessing: Channel<Record> {
         path { r -> r.files >> preprocessingTarget(r) }
     }
-    differential: Channel<Published> {
+    differential: Channel<Record> {
         path { r -> r.files >> differentialTarget(r) }
     }
-    functional: Channel<Published> {
+    functional: Channel<Record> {
         path { r -> r.files >> functionalTarget(r) }
     }
-    plotting: Channel<Published> {
+    plotting: Channel<Record> {
         path { r -> r.files >> plottingTarget(r) }
     }
-    propd: Channel<Published> {
+    propd: Channel<Record> {
         path { r -> r.files >> propdTarget(r) }
     }
-    grea: Channel<Published> {
+    grea: Channel<Record> {
         path { r -> r.files >> greaTarget(r) }
     }
-    shinyngs: Channel<Published> {
+    shinyngs: Channel<Record> {
         path { r -> r.files >> "shinyngs_app/${r.meta.paramset_name}/" }
     }
-    report: Channel<Published> {
+    report: Channel<Record> {
         path { r -> r.files >> "report/${r.meta.paramset_name}/" }
     }
-    versions: Channel<Published> {
+    versions: Channel<Record> {
         path { r -> r.files >> "pipeline_info/" }
     }
 }

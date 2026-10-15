@@ -11,10 +11,6 @@ include { FASTQ_REMOVE_RRNA                     } from '../fastq_remove_rrna'
 include { FASTQ_SUBSAMPLE_FQ_SALMON             } from '../fastq_subsample_fq_salmon'
 include { FASTQ_FASTQC_UMITOOLS_TRIMGALORE      } from '../fastq_fastqc_umitools_trimgalore'
 include { FASTQ_FASTQC_UMITOOLS_FASTP           } from '../fastq_fastqc_umitools_fastp'
-include { ReadsInput; RrnaReferences; FastqQcTrimFilterSetstrandedness } from '../../../modules/nf-core/types'
-include { BbmapBbsplitResult } from '../../../modules/nf-core/bbmap/bbsplit/main'
-include { FastqcResult } from '../../../modules/nf-core/fastqc/main'
-include { FqLintResult } from '../../../modules/nf-core/fq/lint/main'
 
 //
 // Function to determine library type by comparing type counts.
@@ -78,20 +74,48 @@ def getSalmonInferredStrandedness(json_file, stranded_threshold = 0.8, unstrande
     return calculateStrandedness(forwardFragments, reverseFragments, unstrandedFragments, stranded_threshold, unstranded_threshold)
 }
 
-// The tool arguments of this subworkflow and of the subworkflows it runs: each of those reads a subset of these fields
-record QcTrimFilterArgs {
-    fq_lint:                   String?
-    umi_extract:               String?
-    fastp:                     String?
-    trimgalore:                String?
-    use_gpu_ribodetector:      Boolean?
-    salmon_index_strandedness: String?
+// The emitted record of one sample, from the record joined across the stages
+def preprocessedSample(r, meta, skip_linting) {
+    def has_fastqc = [
+        r.fastqc_raw_html, r.fastqc_raw_zip,
+        r.fastqc_trim_html, r.fastqc_trim_zip,
+        r.fastqc_filtered_html, r.fastqc_filtered_zip
+    ].any { f -> f != null }
+    return record(
+        meta:              meta,
+        reads:             r.reads,
+        reads_cat:         r.reads_cat,
+        reads_trimmed:     r.reads_trimmed,
+        num_trimmed_reads: r.num_trimmed_reads,
+        fastqc:            has_fastqc
+            ? record(
+                raw_html:      r.fastqc_raw_html,
+                raw_zip:       r.fastqc_raw_zip,
+                trim_html:     r.fastqc_trim_html,
+                trim_zip:      r.fastqc_trim_zip,
+                filtered_html: r.fastqc_filtered_html,
+                filtered_zip:  r.fastqc_filtered_zip
+            )
+            : null,
+        trim:              r.trim,
+        umi:               r.umi,
+        bbsplit:           r.bbsplit,
+        lint:              skip_linting
+            ? null
+            : record(
+                raw:     r.lint_raw,
+                trimmed: r.lint_trimmed,
+                bbsplit: r.lint_bbsplit,
+                ribo:    r.lint_ribo
+            ),
+        rrna:              r.rrna
+    )
 }
 
 workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     take:
     // Input channels
-    ch_reads: Channel<ReadsInput>
+    ch_reads: Channel<Record> // meta, reads
     ch_fasta: Value<Path> // genome.fasta
     ch_transcript_fasta: Value<Path> // transcript.fasta
     ch_gtf: Value<Path> // genome.gtf
@@ -135,7 +159,7 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     unstranded_threshold: Float // The difference in fraction of stranded reads assigned to 'forward' and 'reverse' below which a sample is classified as 'unstranded'
 
     // Tool options
-    tool_args: QcTrimFilterArgs // fq_lint, plus the options of the subworkflows it runs
+    tool_args: Record // fq_lint, plus umi_extract, fastp, trimgalore, use_gpu_ribodetector and salmon_index_strandedness for the subworkflows it runs
 
     main:
 
@@ -149,16 +173,18 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     ch_fastq_multiple = ch_reads.filter { r ->
         !((r.meta.single_end ? r.reads.size() == 1 : r.reads.size() == 2) && r.reads[0].name.endsWith('.gz') && !save_merged_fastq)
     }
-    ch_cat = CAT_FASTQ(ch_fastq_multiple).mix(ch_fastq_single)
+    ch_cat = CAT_FASTQ(ch_fastq_multiple.map { r -> record(meta: r.meta, reads: r.reads) })
+        .mix(ch_fastq_single.map { r -> record(meta: r.meta, reads: r.reads) })
 
     // Each stage that runs joins its outputs onto this per-sample record, overwriting the
     // null placeholders of the fields it owns. `reads` always holds the reads handed to the
     // next stage and is null for samples that failed a filter. Stages after the
     // min_trimmed_reads filter run on samples with reads and join back with `remainder` so
-    // that samples failing it keep their record.
+    // that samples failing it keep their record. Joins key on meta, which the trimming
+    // subworkflows can change (UMI read discard sets single_end), so their output replaces
+    // the record instead of being joined onto it.
     ch_samples = ch_cat.map { r ->
         record(
-            id:                   r.id,
             meta:                 r.meta,
             reads:                r.reads,
             reads_cat:            r.reads,
@@ -186,8 +212,8 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     //
 
     if (!skip_linting) {
-        def ch_lint_raw: Channel<FqLintResult> = FQ_LINT(ch_cat.map { r -> r + record(args: tool_args.fq_lint) })
-        ch_samples = ch_samples.join(ch_lint_raw.map { r -> record(id: r.id, lint_raw: r.lint) }, by: 'id')
+        ch_lint_raw = FQ_LINT(ch_cat.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.fq_lint) })
+        ch_samples = ch_samples.join(ch_lint_raw.map { r -> record(meta: r.meta, lint_raw: r.lint) }, by: 'meta')
     }
 
     //
@@ -206,18 +232,15 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
         )
 
         // TrimGalore's own html and zip are FastQC reports on the trimmed reads
-        ch_samples = ch_samples.join(
-            ch_trimgalore.map { r ->
-                r + record(
-                    fastqc_trim_html: r.trim != null ? r.trim.html : null,
-                    fastqc_trim_zip:  r.trim != null ? r.trim.zip : null,
-                    trim: r.trim != null
-                        ? record(html: null, log: r.trim.log, json: r.trim.json, unpaired: r.trim.unpaired, reads_fail: null, reads_merged: null)
-                        : null
-                )
-            },
-            by: 'id'
-        )
+        ch_samples = ch_trimgalore.map { r ->
+            r + record(
+                fastqc_trim_html: r.trim != null ? r.trim.html : null,
+                fastqc_trim_zip:  r.trim != null ? r.trim.zip : null,
+                trim: r.trim != null
+                    ? record(html: null, log: r.trim.log, json: r.trim.json, unpaired: r.trim.unpaired, reads_fail: null, reads_merged: null)
+                    : null
+            )
+        }
     }
 
     //
@@ -225,7 +248,7 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     //
     if (trimmer == 'fastp') {
         ch_fastp = FASTQ_FASTQC_UMITOOLS_FASTP(
-            ch_samples.map { r -> record(id: r.id, meta: r.meta, reads: r.reads, adapter_fasta: null) }, // No adapter fasta
+            ch_samples.map { r -> r + record(adapter_fasta: null) }, // No adapter fasta
             skip_fastqc,
             with_umi,
             skip_umi_extract,
@@ -237,23 +260,20 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
             tool_args,
         )
 
-        ch_samples = ch_samples.join(
-            ch_fastp.map { r ->
-                r + record(
-                    trim: r.trim != null
-                        ? record(html: [r.trim.html], log: [r.trim.log], json: [r.trim.json], unpaired: null, reads_fail: r.trim.reads_fail, reads_merged: r.trim.reads_merged)
-                        : null
-                )
-            },
-            by: 'id'
-        )
+        ch_samples = ch_fastp.map { r ->
+            r + record(
+                trim: r.trim != null
+                    ? record(html: [r.trim.html], log: [r.trim.log], json: [r.trim.json], unpaired: null, reads_fail: r.trim.reads_fail, reads_merged: r.trim.reads_merged)
+                    : null
+            )
+        }
     }
 
     if (!skip_linting && !skip_trimming) {
-        def ch_lint_trimmed: Channel<FqLintResult> = FQ_LINT_AFTER_TRIMMING(ch_samples.filter { r -> r.reads != null }.map { r -> r + record(args: tool_args.fq_lint) })
+        ch_lint_trimmed = FQ_LINT_AFTER_TRIMMING(ch_samples.filter { r -> r.reads != null }.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.fq_lint) })
         ch_samples = ch_samples.join(
-            ch_lint_trimmed.map { r -> record(id: r.id, lint_trimmed: r.lint) },
-            by: 'id',
+            ch_lint_trimmed.map { r -> record(meta: r.meta, lint_trimmed: r.lint) },
+            by: 'meta',
             remainder: true
         )
     }
@@ -264,18 +284,17 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     // MODULE: Remove genome contaminant reads
     //
     if (!skip_bbsplit) {
-        def ch_bbsplit: Channel<BbmapBbsplitResult> = BBMAP_BBSPLIT(
-            ch_samples.filter { r -> r.reads != null },
-            ch_bbsplit_index,
-            null,
-            tuple([], []),
-            false,
+        ch_bbsplit = BBMAP_BBSPLIT(
+            ch_samples
+                .filter { r -> r.reads != null }
+                .map { r -> record(meta: r.meta, reads: r.reads, primary_ref: null, other_ref_names: [], other_ref_paths: [], only_build_index: false) }
+                .combine(index: ch_bbsplit_index)
         )
 
         ch_samples = ch_samples.join(
             ch_bbsplit.map { r ->
                 record(
-                    id:      r.id,
+                    meta:    r.meta,
                     reads:   r.reads.isEmpty() ? null : r.reads,
                     bbsplit: r.stats != null
                         ? record(
@@ -286,15 +305,15 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
                         : null
                 )
             },
-            by: 'id',
+            by: 'meta',
             remainder: true
         )
 
         if (!skip_linting) {
-            def ch_lint_bbsplit: Channel<FqLintResult> = FQ_LINT_AFTER_BBSPLIT(ch_samples.filter { r -> r.reads != null }.map { r -> r + record(args: tool_args.fq_lint) })
+            ch_lint_bbsplit = FQ_LINT_AFTER_BBSPLIT(ch_samples.filter { r -> r.reads != null }.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.fq_lint) })
             ch_samples = ch_samples.join(
-                ch_lint_bbsplit.map { r -> record(id: r.id, lint_bbsplit: r.lint) },
-                by: 'id',
+                ch_lint_bbsplit.map { r -> record(meta: r.meta, lint_bbsplit: r.lint) },
+                by: 'meta',
                 remainder: true
             )
         }
@@ -303,7 +322,7 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     //
     // SUBWORKFLOW: Remove ribosomal RNA reads
     //
-    val_rrna_references = channel.value(
+    def val_rrna_references: Value<Record> = channel.value(
         record(sortmerna_index: null, bowtie2_index: null, seqkit_prefixed: null, seqkit_converted: null)
     )
     if (remove_ribo_rna) {
@@ -323,7 +342,7 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
         ch_samples = ch_samples.join(
             ch_rrna_removed.samples.map { r ->
                 record(
-                    id:    r.id,
+                    meta:  r.meta,
                     reads: r.reads,
                     rrna:  record(
                         sortmerna_log:    r.sortmerna_log,
@@ -333,15 +352,15 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
                     )
                 )
             },
-            by: 'id',
+            by: 'meta',
             remainder: true
         )
 
         if (!skip_linting) {
-            def ch_lint_ribo: Channel<FqLintResult> = FQ_LINT_AFTER_RIBO_REMOVAL(ch_samples.filter { r -> r.reads != null }.map { r -> r + record(args: tool_args.fq_lint) })
+            ch_lint_ribo = FQ_LINT_AFTER_RIBO_REMOVAL(ch_samples.filter { r -> r.reads != null }.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.fq_lint) })
             ch_samples = ch_samples.join(
-                ch_lint_ribo.map { r -> record(id: r.id, lint_ribo: r.lint) },
-                by: 'id',
+                ch_lint_ribo.map { r -> record(meta: r.meta, lint_ribo: r.lint) },
+                by: 'meta',
                 remainder: true
             )
         }
@@ -351,10 +370,10 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
     // MODULE: Run FastQC on filtered reads (after BBSplit and/or rRNA removal)
     //
     if (!skip_fastqc && (!skip_bbsplit || remove_ribo_rna)) {
-        def ch_fastqc_filtered: Channel<FastqcResult> = FASTQC_FILTERED(ch_samples.filter { r -> r.reads != null })
+        ch_fastqc_filtered = FASTQC_FILTERED(ch_samples.filter { r -> r.reads != null })
         ch_samples = ch_samples.join(
-            ch_fastqc_filtered.map { r -> record(id: r.id, fastqc_filtered_html: r.html, fastqc_filtered_zip: r.zip) },
-            by: 'id',
+            ch_fastqc_filtered.map { r -> record(meta: r.meta, fastqc_filtered_html: r.html, fastqc_filtered_zip: r.zip) },
+            by: 'meta',
             remainder: true
         )
     }
@@ -373,15 +392,15 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
         make_salmon_index,
         tool_args,
     )
-    ch_lib_format_counts = ch_salmon.samples.map { r -> record(id: r.id, lib_format_counts: r.lib_format_counts) }
+    ch_lib_format_counts = ch_salmon.samples.map { r -> record(meta: r.meta, lib_format_counts: r.lib_format_counts) }
     ch_salmon_index_built = ch_salmon.index_built
 
-    ch_inferred_meta = ch_auto_strand
-        .map { r -> record(id: r.id, meta: r.meta, lib_format_counts: null) }
-        .join(ch_lib_format_counts, by: 'id', remainder: true)
+    // Joined on meta before the inferred strandedness is added to it
+    ch_inferred = ch_auto_strand
+        .join(ch_lib_format_counts, by: 'meta', remainder: true)
         .map { r ->
             if (r.lib_format_counts == null) {
-                error("Salmon failed to produce lib_format_counts for sample '${r.id}' " +
+                error("Salmon failed to produce lib_format_counts for sample '${r.meta.id}' " +
                     "which was set to 'auto' strandedness. Check that the Salmon " +
                     "index matches your input reads, or set strandedness explicitly in the samplesheet.")
             }
@@ -390,55 +409,17 @@ workflow FASTQ_QC_TRIM_FILTER_SETSTRANDEDNESS {
             if (strandedness == 'undetermined') {
                 strandedness = 'unstranded'
             }
-            record(id: r.id, meta: r.meta + [strandedness: strandedness, salmon_strand_analysis: salmon_strand_analysis])
+            preprocessedSample(r, r.meta + record(strandedness: strandedness, salmon_strand_analysis: salmon_strand_analysis), skip_linting)
         }
 
-    ch_inferred = ch_auto_strand.join(ch_inferred_meta, by: 'id')
+    ch_known_strand = ch_samples
+        .filter { r -> r.reads == null || r.meta.strandedness != 'auto' }
+        .map { r -> preprocessedSample(r, r.meta, skip_linting) }
 
-    ch_known_strand = ch_samples.filter { r -> r.reads == null || r.meta.strandedness != 'auto' }
-
-    ch_results = ch_inferred
-        .mix(ch_known_strand)
-        .map { r ->
-            def has_fastqc = [
-                r.fastqc_raw_html, r.fastqc_raw_zip,
-                r.fastqc_trim_html, r.fastqc_trim_zip,
-                r.fastqc_filtered_html, r.fastqc_filtered_zip
-            ].any { f -> f != null }
-            record(
-                id:                r.id,
-                meta:              r.meta,
-                reads:             r.reads,
-                reads_cat:         r.reads_cat,
-                reads_trimmed:     r.reads_trimmed,
-                num_trimmed_reads: r.num_trimmed_reads,
-                fastqc:            has_fastqc
-                    ? record(
-                        raw_html:      r.fastqc_raw_html,
-                        raw_zip:       r.fastqc_raw_zip,
-                        trim_html:     r.fastqc_trim_html,
-                        trim_zip:      r.fastqc_trim_zip,
-                        filtered_html: r.fastqc_filtered_html,
-                        filtered_zip:  r.fastqc_filtered_zip
-                    )
-                    : null,
-                trim:              r.trim,
-                umi:               r.umi,
-                bbsplit:           r.bbsplit,
-                lint:              skip_linting
-                    ? null
-                    : record(
-                        raw:     r.lint_raw,
-                        trimmed: r.lint_trimmed,
-                        bbsplit: r.lint_bbsplit,
-                        ribo:    r.lint_ribo
-                    ),
-                rrna:              r.rrna
-            )
-        }
+    ch_results = ch_inferred.mix(ch_known_strand)
 
     emit:
-    samples: Channel<FastqQcTrimFilterSetstrandedness> = ch_results
-    rrna_references: Value<RrnaReferences> = val_rrna_references
+    samples: Channel<Record> = ch_results
+    rrna_references: Value<Record> = val_rrna_references
     salmon_index_built: Value<Path?> = ch_salmon_index_built
 }

@@ -7,8 +7,6 @@ nextflow.enable.types = true
 include { FASTQC           } from '../../../modules/nf-core/fastqc/main'
 include { UMITOOLS_EXTRACT } from '../../../modules/nf-core/umitools/extract/main'
 include { TRIMGALORE       } from '../../../modules/nf-core/trimgalore/main'
-include { ReadsInput; FastqFastqcUmitoolsTrimgalore } from '../../../modules/nf-core/types'
-include { FastqcResult } from '../../../modules/nf-core/fastqc/main'
 
 //
 // Function that parses TrimGalore log output file to get total number of reads after trimming
@@ -29,30 +27,23 @@ def getTrimGaloreReadsAfterFiltering(log_file) {
     return total_reads - filtered_reads
 }
 
-record TrimGaloreArgs {
-    umi_extract: String?
-    trimgalore:  String?
-}
-
 workflow FASTQ_FASTQC_UMITOOLS_TRIMGALORE {
     take:
-    ch_reads: Channel<ReadsInput>
+    ch_reads: Channel // records with meta, reads; their other fields are carried through to the output
     skip_fastqc: Boolean // true/false
     with_umi: Boolean // true/false
     skip_umi_extract: Boolean // true/false
     skip_trimming: Boolean // true/false
     umi_discard_read: Integer // 0, 1 or 2
     min_trimmed_reads: Integer // > 0
-    tool_args: TrimGaloreArgs // UMI-tools extract and TrimGalore options
+    tool_args: Record // umi_extract, trimgalore: UMI-tools extract and TrimGalore options
 
     main:
-    // Each stage that runs joins its outputs onto this per-sample record, overwriting
-    // the null placeholders of the fields it owns.
+    // Each stage that runs joins its outputs onto the incoming record, overwriting the null
+    // placeholders of the fields it owns. Joins on meta happen before the UMI read discard
+    // changes it, or after on both sides.
     ch_results = ch_reads.map { r ->
-        record(
-            id:                r.id,
-            meta:              r.meta,
-            reads:             r.reads,
+        r + record(
             fastqc_raw_html:   null,
             fastqc_raw_zip:    null,
             umi:               null,
@@ -62,42 +53,36 @@ workflow FASTQ_FASTQC_UMITOOLS_TRIMGALORE {
     }
 
     if (!skip_fastqc) {
-        def ch_fastqc: Channel<FastqcResult> = FASTQC(ch_reads)
+        ch_fastqc = FASTQC(ch_reads.map { r -> record(meta: r.meta, reads: r.reads) })
         ch_results = ch_results.join(
-            ch_fastqc.map { r -> record(id: r.id, fastqc_raw_html: r.html, fastqc_raw_zip: r.zip) },
-            by: 'id'
+            ch_fastqc.map { r -> record(meta: r.meta, fastqc_raw_html: r.html, fastqc_raw_zip: r.zip) },
+            by: 'meta'
         )
     }
 
-    ch_trimmer_reads = ch_reads.map { r -> record(id: r.id, meta: r.meta, reads: r.reads, umi: null) }
     if (with_umi && !skip_umi_extract) {
-        ch_trimmer_reads = UMITOOLS_EXTRACT(ch_reads.map { r -> r + record(args: tool_args.umi_extract) }).map { r ->
-            // Discard R1 / R2 if required
-            def discard = umi_discard_read in [1, 2] && !r.meta.single_end
-            def meta = r.meta
-            if (discard) {
-                meta = r.meta + [single_end: true]
+        ch_umi = UMITOOLS_EXTRACT(ch_reads.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.umi_extract) })
+        ch_results = ch_results
+            .join(ch_umi.map { r -> record(meta: r.meta, umi: record(log: r.log, reads: r.reads)) }, by: 'meta')
+            .map { r ->
+                // Discard R1 / R2 if required
+                def discard = umi_discard_read in [1, 2] && !r.meta.single_end
+                r + record(
+                    meta:  discard ? r.meta + record(single_end: true) : r.meta,
+                    reads: discard ? [r.umi.reads[umi_discard_read % 2]] : r.umi.reads
+                )
             }
-            record(
-                id:    r.id,
-                meta:  meta,
-                reads: discard ? [r.reads[umi_discard_read % 2]] : r.reads,
-                umi:   record(log: r.log, reads: r.reads)
-            )
-        }
     }
-    ch_results = ch_results.join(ch_trimmer_reads, by: 'id')
 
     if (!skip_trimming) {
         //
         // Filter FastQ files based on minimum trimmed read count after adapter trimming
         //
-        ch_trim = TRIMGALORE(ch_trimmer_reads.map { r -> r + record(args: tool_args.trimgalore) }).map { r ->
+        ch_trim = TRIMGALORE(ch_results.map { r -> record(meta: r.meta, reads: r.reads, args: tool_args.trimgalore) }).map { r ->
             def num_reads = r.log.isEmpty()
                 ? (min_trimmed_reads as Float) + 1
                 : getTrimGaloreReadsAfterFiltering(r.log[-1]) as Float
             record(
-                id:                r.id,
                 meta:              r.meta,
                 reads:             num_reads >= (min_trimmed_reads as Float) ? r.reads : null,
                 // TrimGalore reports and unpaired reads are all optional outputs
@@ -111,7 +96,7 @@ workflow FASTQ_FASTQC_UMITOOLS_TRIMGALORE {
                 num_trimmed_reads: num_reads
             )
         }
-        ch_results = ch_results.join(ch_trim, by: 'id')
+        ch_results = ch_results.join(ch_trim, by: 'meta')
     }
 
     emit:

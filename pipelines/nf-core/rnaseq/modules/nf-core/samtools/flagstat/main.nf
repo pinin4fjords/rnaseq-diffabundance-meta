@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { BamBaiInput } from '../../types'
-
-record SamtoolsFlagstatResult {
-    id:       String
-    meta:     Map
-    flagstat: Path
-}
-
 process SAMTOOLS_FLAGSTAT {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -18,26 +10,30 @@ process SAMTOOLS_FLAGSTAT {
         : 'community.wave.seqera.io/library/htslib_samtools:1.24--d697cfb9dce007cd'}"
 
     input:
-    sample: BamBaiInput
+    record(
+        meta: Record,
+        bam:  Path,
+        bai:  Path
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, flagstat: file('*.flagstat')) as SamtoolsFlagstatResult
+    record(meta: meta, flagstat: file('*.flagstat'))
 
     topic:
     tuple(task.process, 'samtools', eval("samtools version | sed '1!d;s/.* //'")) >> 'versions'
 
     script:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     samtools \\
         flagstat \\
         --threads ${task.cpus} \\
-        ${sample.bam} \\
+        ${bam} \\
         > ${prefix}.flagstat
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     cat <<-END_FLAGSTAT > ${prefix}.flagstat
     1000000 + 0 in total (QC-passed reads + QC-failed reads)

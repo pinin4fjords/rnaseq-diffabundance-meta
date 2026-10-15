@@ -1,10 +1,7 @@
 nextflow.enable.types = true
 
-include { ReadsInput } from '../../types'
-include { RsemQuantSample } from '../../rsem/calculateexpression/main'
-
 process SENTIEON_RSEMCALCULATEEXPRESSION {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_high'
     label 'sentieon'
 
@@ -14,13 +11,15 @@ process SENTIEON_RSEMCALCULATEEXPRESSION {
         'community.wave.seqera.io/library/rsem_sentieon:3e4315fa0b636313' }"
 
     input:
-    sample: ReadsInput  // FASTQ files or BAM file for --alignments mode
-    index: Path
+    record(
+        meta:  Record,
+        reads: List<Path>,
+        index: Path
+    )
 
     output:
     record(
-        id:                sample.id,
-        meta:              sample.meta,
+        meta:              meta,
         counts_gene:       file("*.genes.results"),
         counts_transcript: file("*.isoforms.results"),
         stat:              file("*.stat"),
@@ -28,7 +27,7 @@ process SENTIEON_RSEMCALCULATEEXPRESSION {
         bam_star:          file("*.STAR.genome.bam", optional: true),
         bam_genome:        file("${prefix}.genome.bam", optional: true),
         bam_transcript:    file("${prefix}.transcript.bam", optional: true)
-    ) as RsemQuantSample
+    )
 
     topic:
     tuple(task.process, 'rsem', eval('rsem-calculate-expression --version | sed -e "s/Current version: RSEM v//g"')) >> 'versions'
@@ -37,23 +36,23 @@ process SENTIEON_RSEMCALCULATEEXPRESSION {
 
     script:
     def args = task.ext.args   ?: ''
-    prefix   = task.ext.prefix ?: "${sample.meta.id}"
+    prefix   = task.ext.prefix ?: "${meta.id}"
 
     def strandedness = ''
-    if (sample.meta.strandedness == 'forward') {
+    if (meta.strandedness == 'forward') {
         strandedness = '--strandedness forward'
-    } else if (sample.meta.strandedness == 'reverse') {
+    } else if (meta.strandedness == 'reverse') {
         strandedness = '--strandedness reverse'
     }
 
     // Detect if input is BAM file(s); a lone file arrives as a Path, which iterates over its name components
-    def reads_names = sample.reads instanceof Path ? "${sample.reads}" : sample.reads.join(' ')
-    def reads_count = sample.reads instanceof Path ? 1 : sample.reads.size()
+    def reads_names = reads instanceof Path ? "${reads}" : reads.join(' ')
+    def reads_count = reads instanceof Path ? 1 : reads.size()
     def is_bam = reads_names.toLowerCase().endsWith('.bam')
     def alignment_mode = is_bam ? '--alignments' : ''
 
     // Use metadata for paired-end detection if available, otherwise empty (auto-detect)
-    def paired_end = sample.meta.containsKey('single_end') ? (sample.meta.single_end ? "" : "--paired-end") : "unknown"
+    def paired_end = meta.single_end != null ? (meta.single_end ? "" : "--paired-end") : "unknown"
 
     def sentieonLicense = secrets.SENTIEON_LICENSE_BASE64
         ? "export SENTIEON_LICENSE=\$(mktemp);echo -e \"${secrets.SENTIEON_LICENSE_BASE64}\" | base64 -d > \$SENTIEON_LICENSE; "
@@ -92,8 +91,8 @@ process SENTIEON_RSEMCALCULATEEXPRESSION {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def is_bam = (sample.reads instanceof Path ? "${sample.reads}" : sample.reads.join(' ')).toLowerCase().endsWith('.bam')
+    prefix = task.ext.prefix ?: "${meta.id}"
+    def is_bam = (reads instanceof Path ? "${reads}" : reads.join(' ')).toLowerCase().endsWith('.bam')
     """
     # Create symlink to sentieon in PATH for version detection
     ln -sf \$(which sentieon) ./STAR

@@ -11,14 +11,11 @@ include { SUBREAD_FEATURECOUNTS           } from '../../../modules/nf-core/subre
 include { CUSTOM_MULTIQCCUSTOMBIOTYPE     } from '../../../modules/nf-core/custom/multiqccustombiotype/main'
 include { SAMTOOLS_SORT as SAMTOOLS_SORT_QUALIMAP } from '../../../modules/nf-core/samtools/sort/main'
 include { BAM_RSEQC                       } from '../bam_rseqc/main'
-include { BamBaiInput; BamQcFeaturecounts; BamQcRnaseq } from '../../../modules/nf-core/types'
-include { CustomMultiqccustombiotypeResult } from '../../../modules/nf-core/custom/multiqccustombiotype/main'
-include { SamtoolsSortResult } from '../../../modules/nf-core/samtools/sort/main'
 
 workflow BAM_QC_RNASEQ {
 
     take:
-    ch_bam_bai: Channel<BamBaiInput>
+    ch_bam_bai: Channel<Record>
     ch_gtf: Value<Path>
     ch_gene_bed: Value<Path>
     ch_fasta: Value<Path?>
@@ -35,7 +32,6 @@ workflow BAM_QC_RNASEQ {
     // so skipped groups leave a null field and no join is made against an empty channel.
     ch_qc = ch_bam_bai.map { r ->
         record(
-            id:            r.id,
             meta:          r.meta,
             preseq:        null,
             featurecounts: null,
@@ -53,8 +49,8 @@ workflow BAM_QC_RNASEQ {
         // Remainder join: preseq can fail on low-duplication BAMs, and callers
         // may set errorStrategy 'ignore' rather than lose the sample.
         ch_qc = ch_qc.join(
-            PRESEQ_LCEXTRAP(ch_bam_bai).map { r -> record(id: r.id, preseq: r) },
-            by: 'id',
+            PRESEQ_LCEXTRAP(ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam) }).map { r -> record(meta: r.meta, preseq: r) },
+            by: 'meta',
             remainder: true
         )
     }
@@ -63,25 +59,28 @@ workflow BAM_QC_RNASEQ {
     // MODULE: Feature biotype QC using featureCounts
     //
     if ('biotype_qc' in tools && biotype) {
-        def ch_featurecounts: Channel<BamQcFeaturecounts> = SUBREAD_FEATURECOUNTS(
-            ch_bam_bai.map { r -> r + record(args: ['-B -C', "-g ${biotype}", "-t ${featurecounts_feature_type}"].join(' ')) },
-            ch_gtf
+        ch_featurecounts = SUBREAD_FEATURECOUNTS(
+            ch_bam_bai
+                .map { r -> record(meta: r.meta, bam: r.bam, args: ['-B -C', "-g ${biotype}", "-t ${featurecounts_feature_type}"].join(' ')) }
+                .combine(annotation: ch_gtf)
         )
-        def ch_biotype: Channel<CustomMultiqccustombiotypeResult> = CUSTOM_MULTIQCCUSTOMBIOTYPE(ch_featurecounts, biotypes_header)
+        ch_biotype = CUSTOM_MULTIQCCUSTOMBIOTYPE(ch_featurecounts.map { r -> record(meta: r.meta, counts: r.counts, header: biotypes_header) })
         ch_qc = ch_qc
-            .join(ch_featurecounts.map { r -> record(id: r.id, featurecounts: r) }, by: 'id')
-            .join(ch_biotype.map { r -> record(id: r.id, biotype: record(tsv: r.tsv, rrna: r.rrna)) }, by: 'id')
+            .join(ch_featurecounts.map { r -> record(meta: r.meta, featurecounts: r) }, by: 'meta')
+            .join(ch_biotype.map { r -> record(meta: r.meta, biotype: record(tsv: r.tsv, rrna: r.rrna)) }, by: 'meta')
     }
 
     //
     // MODULE: Qualimap
     //
     if ('qualimap' in tools) {
-        ch_sort_in = ch_bam_bai.map { r -> record(id: r.id, meta: r.meta, raw_bams: [ r.bam ]) }
+        ch_sort_in = ch_bam_bai
+            .map { r -> record(meta: r.meta, raw_bams: [ r.bam ]) }
+            .combine(fasta: ch_fasta, fai: ch_fai, index_format: '')
 
         // Name-sorted BAM via samtools sort; requires ext.args = '-n' to be set by the caller for SAMTOOLS_SORT_QUALIMAP
-        def ch_name_sorted: Channel<SamtoolsSortResult> = SAMTOOLS_SORT_QUALIMAP(ch_sort_in, ch_fasta, ch_fai, '')
-        ch_qc = ch_qc.join(QUALIMAP_RNASEQ(ch_name_sorted, ch_gtf), by: 'id')
+        ch_name_sorted = SAMTOOLS_SORT_QUALIMAP(ch_sort_in)
+        ch_qc = ch_qc.join(QUALIMAP_RNASEQ(ch_name_sorted.map { r -> record(meta: r.meta, bam: r.bam) }.combine(gtf: ch_gtf)), by: 'meta')
     }
 
     //
@@ -89,8 +88,8 @@ workflow BAM_QC_RNASEQ {
     //
     if ('dupradar' in tools) {
         ch_qc = ch_qc.join(
-            DUPRADAR(ch_bam_bai, ch_gtf).map { r -> record(id: r.id, dupradar: r) },
-            by: 'id'
+            DUPRADAR(ch_bam_bai.map { r -> record(meta: r.meta, bam: r.bam) }.combine(gtf: ch_gtf)).map { r -> record(meta: r.meta, dupradar: r) },
+            by: 'meta'
         )
     }
 
@@ -99,8 +98,8 @@ workflow BAM_QC_RNASEQ {
     //
     if (rseqc_modules.size() > 0) {
         ch_qc = ch_qc.join(
-            BAM_RSEQC(ch_bam_bai, ch_gene_bed, rseqc_modules).map { r -> record(id: r.id, rseqc: r) },
-            by: 'id'
+            BAM_RSEQC(ch_bam_bai, ch_gene_bed, rseqc_modules).map { r -> record(meta: r.meta, rseqc: r) },
+            by: 'meta'
         )
     }
 

@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { ReadsInput } from '../../types'
-
-record SylphProfileResult {
-    id:          String
-    meta:        Map
-    profile_out: Path
-}
-
 process SYLPH_PROFILE {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_high'
 
     conda "${moduleDir}/environment.yml"
@@ -18,19 +10,22 @@ process SYLPH_PROFILE {
         : 'quay.io/biocontainers/sylph:0.9.0--ha6fb395_0'}"
 
     input:
-    sample: ReadsInput
-    database: List<Path>
+    record(
+        meta:     Record,
+        reads:    List<Path>,
+        database: List<Path>
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, profile_out: file('*.tsv')) as SylphProfileResult
+    record(meta: meta, profile_out: file('*.tsv'))
 
     topic:
     tuple(task.process, 'sylph', eval('sylph -V | sed "s/sylph //g"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def input = sample.meta.single_end ? "-r ${sample.reads[0]}" : "-1 ${sample.reads[0]} -2 ${sample.reads[1]}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    def input = meta.single_end ? "-r ${reads[0]}" : "-1 ${reads[0]} -2 ${reads[1]}"
     """
     sylph profile \\
         -t ${task.cpus} \\
@@ -41,7 +36,7 @@ process SYLPH_PROFILE {
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.tsv
     """

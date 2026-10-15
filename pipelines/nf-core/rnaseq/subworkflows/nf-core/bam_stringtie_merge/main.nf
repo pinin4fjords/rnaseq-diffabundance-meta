@@ -2,22 +2,19 @@ nextflow.enable.types = true
 
 include { STRINGTIE_STRINGTIE } from '../../../modules/nf-core/stringtie/stringtie/main'
 include { STRINGTIE_MERGE     } from '../../../modules/nf-core/stringtie/merge/main'
-include { StringtieInput; StringtieMerged } from '../../../modules/nf-core/types'
-include { StringtieMergeResult } from '../../../modules/nf-core/stringtie/merge/main'
-include { StringtieResult } from '../../../modules/nf-core/stringtie/stringtie/main'
 
 workflow BAM_STRINGTIE_MERGE {
     take:
-    ch_bams: Channel<StringtieInput>
+    ch_bams: Channel<Record>
     mode: Value<List<String>>
     chrgtf: Value<Path?>
 
     main:
 
-    def ch_assemblies: Channel<StringtieResult> = STRINGTIE_STRINGTIE(
-        ch_bams,
-        mode,
-        chrgtf
+    ch_assemblies = STRINGTIE_STRINGTIE(
+        ch_bams
+            .map { r -> record(meta: r.meta, bam: r.bam, lrbam: r.lrbam) }
+            .combine(mode: mode, annotation_gtf: chrgtf)
     )
 
     ch_to_merge = ch_assemblies
@@ -25,17 +22,16 @@ workflow BAM_STRINGTIE_MERGE {
         .flatMap { assemblies ->
             assemblies.isEmpty() ? [] : [
                 record(
-                    id:         'stringtie_merge',
-                    meta:       [id: 'stringtie_merge'],
+                    meta:       record(id: 'stringtie_merge'),
                     gtf:        assemblies.collect { r -> r.transcript_gtf }.toSorted { f -> f.name },
                     assemblies: assemblies
                 )
             ]
         }
 
-    def ch_merged: Channel<StringtieMergeResult> = STRINGTIE_MERGE(ch_to_merge, chrgtf)
+    ch_merged = STRINGTIE_MERGE(ch_to_merge.map { r -> record(meta: r.meta, gtf: r.gtf) }.combine(annotation_gtf: chrgtf))
 
-    ch_results = ch_to_merge.join(ch_merged.map { r -> record(id: r.id, merged_gtf: r.merged_gtf) }, by: 'id')
+    ch_results = ch_to_merge.join(ch_merged.map { r -> record(meta: r.meta, merged_gtf: r.merged_gtf) }, by: 'meta')
 
     emit:
     ch_results

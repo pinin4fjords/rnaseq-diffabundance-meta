@@ -1,18 +1,7 @@
 nextflow.enable.types = true
 
-include { StringtieInput } from '../../types'
-
-record StringtieResult {
-    id:             String
-    meta:           Map
-    transcript_gtf: Path
-    abundance:      Path
-    coverage_gtf:   Path?
-    ballgown:       Set<Path>
-}
-
 process STRINGTIE_STRINGTIE {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -21,19 +10,22 @@ process STRINGTIE_STRINGTIE {
         'community.wave.seqera.io/library/stringtie:3.0.3--e8043d00caecd051' }"
 
     input:
-    sample: StringtieInput
-    mode: List<String>
-    annotation_gtf: Path?
+    record(
+        meta:           Record,
+        bam:            Path?,
+        lrbam:          Path?,
+        mode:           List<String>,
+        annotation_gtf: Path?
+    )
 
     output:
     record(
-        id:             sample.id,
-        meta:           sample.meta,
+        meta:           meta,
         transcript_gtf: file("${prefix}.transcripts.gtf"),
         abundance:      file("${prefix}.gene.abundance.txt"),
         coverage_gtf:   file("${prefix}.coverage.gtf", optional: true),
         ballgown:       files("${prefix}.ballgown/*.ctab", optional: true)
-    ) as StringtieResult
+    )
 
     topic:
     tuple(task.process, 'stringtie', eval('stringtie --version')) >> 'versions'
@@ -41,14 +33,14 @@ process STRINGTIE_STRINGTIE {
     script:
     def args      = task.ext.args ?: ''
     def args2     = task.ext.args2 ?: ''
-    prefix        = task.ext.prefix ?: "${sample.meta.id}"
+    prefix        = task.ext.prefix ?: "${meta.id}"
     def reference = annotation_gtf ? "-G $annotation_gtf" : ""
     def ballgown  = annotation_gtf ? "-b ${prefix}.ballgown" : ""
     def coverage  = annotation_gtf ? "-C ${prefix}.coverage.gtf" : ""
 
     // atleast one bam must be provided
-    if (!sample.bam && !sample.lrbam) {
-        error "At least one of bam or lrbam must be provided for ${sample.meta.id}"
+    if (!bam && !lrbam) {
+        error "At least one of bam or lrbam must be provided for ${meta.id}"
     }
 
     // check for mode validity and required inputs for each mode
@@ -63,20 +55,20 @@ process STRINGTIE_STRINGTIE {
         }
 
         // check for required inputs based on modes
-        if (modes.contains('mix-reads-assembly') && !(sample.bam && sample.lrbam)) {
-            error "mode 'mix-reads-assembly' requires both bam and lrbam to be provided for ${sample.meta.id}"
+        if (modes.contains('mix-reads-assembly') && !(bam && lrbam)) {
+            error "mode 'mix-reads-assembly' requires both bam and lrbam to be provided for ${meta.id}"
         }
-        if (modes.contains('long-reads-assembly') && !sample.lrbam) {
-            error "mode 'long-reads-assembly' requires lrbam to be provided for ${sample.meta.id}"
+        if (modes.contains('long-reads-assembly') && !lrbam) {
+            error "mode 'long-reads-assembly' requires lrbam to be provided for ${meta.id}"
         }
         if (modes.contains('expression-estimation') && !annotation_gtf) {
-            error "mode 'expression-estimation' (-e) requires annotation_gtf to be provided for ${sample.meta.id}"
+            error "mode 'expression-estimation' (-e) requires annotation_gtf to be provided for ${meta.id}"
         }
 
         // add mode flags based on the provided modes
         def mode_flags = []
         if (modes.contains('expression-estimation')) {
-            mode_flags += (sample.lrbam && !sample.bam) ? ['-L', '-e'] : ['-e']
+            mode_flags += (lrbam && !bam) ? ['-L', '-e'] : ['-e']
         }
         if (modes.contains('long-reads-assembly') && !modes.contains('expression-estimation')) {
             mode_flags += ['-L']
@@ -92,7 +84,7 @@ process STRINGTIE_STRINGTIE {
     }
 
     // --mix requires the short-read alignments first, long-read alignments second
-    def bam_inputs = (sample.bam && sample.lrbam) ? "${sample.bam} ${sample.lrbam}" : (sample.bam ? "${sample.bam}" : "${sample.lrbam}")
+    def bam_inputs = (bam && lrbam) ? "${bam} ${lrbam}" : (bam ? "${bam}" : "${lrbam}")
     """
     stringtie \\
         -o ${prefix}.transcripts.gtf \\
@@ -108,7 +100,7 @@ process STRINGTIE_STRINGTIE {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     def has_annotation = annotation_gtf ? true : false
 
     """

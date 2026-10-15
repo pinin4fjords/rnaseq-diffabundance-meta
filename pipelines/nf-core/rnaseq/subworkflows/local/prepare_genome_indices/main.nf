@@ -30,17 +30,6 @@ include { STAR_GENOMEPARAMS_UPGRADE         } from '../../../modules/local/star_
 
 include { taskOutputOrNull                  } from '../utils_nfcore_rnaseq_pipeline'
 include { memoryToGiga                       } from '../utils_nfcore_rnaseq_pipeline/tool_args'
-include { GenomeArtifact } from '../../../modules/nf-core/types'
-include { BbmapBbsplitResult } from '../../../modules/nf-core/bbmap/bbsplit/main'
-include { KallistoIndexResult } from '../../../modules/nf-core/kallisto/index/main'
-include { SalmonIndexResult } from '../../../modules/nf-core/salmon/index/main'
-include { SortmernaResult } from '../../../modules/nf-core/sortmerna/main'
-include { StarGenomegenerateResult } from '../../../modules/nf-core/star/genomegenerate/main'
-
-record GenomeIndexArgs {
-    salmon_index:   String?
-    kallisto_index: String?
-}
 
 workflow PREPARE_GENOME_INDICES {
 
@@ -73,7 +62,7 @@ workflow PREPARE_GENOME_INDICES {
     hisat2_build_memory: String?                // memory threshold for HISAT2 index building with splice sites
     any_auto_strandedness: Value<Boolean>       // whether any sample in the input samplesheet declares strandedness 'auto', requiring a Salmon index for strandedness inference
     prokaryotic: Boolean                        // whether the genome is prokaryotic, so that the STAR index is built from CDS features
-    tool_args: GenomeIndexArgs                  // Salmon and Kallisto index options
+    tool_args: Record                           // Salmon and Kallisto index options: salmon_index, kallisto_index
 
     main:
     // Absent indices are Values holding null so every stream keeps one type.
@@ -93,7 +82,7 @@ workflow PREPARE_GENOME_INDICES {
     // 2) BBSplit index: uses FASTA only if we generate from scratch
     //---------------------------------------------------------
     if ('bbsplit' in prepare_tool_indices && bbsplit_index && bbsplit_index.endsWith('.tar.gz')) {
-        ch_bbsplit_index = UNTAR_BBSPLIT_INDEX(record(id: 'bbsplit_index', meta: [:], archive: file(bbsplit_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bbsplit_index = UNTAR_BBSPLIT_INDEX(record(meta: record(id: 'bbsplit_index'), archive: file(bbsplit_index, checkIfExists: true))).map { r -> r.dir }
         ch_bbsplit_log   = ch_no_path
     } else if ('bbsplit' in prepare_tool_indices && bbsplit_index) {
         ch_bbsplit_index = channel.value(file(bbsplit_index, checkIfExists: true))
@@ -101,20 +90,20 @@ workflow PREPARE_GENOME_INDICES {
     } else if ('bbsplit' in prepare_tool_indices && fasta_provided) {
         // bbsplit_fasta_list is a 2 column csv: short_name,path_to_fasta
         def bbsplit_rows = file(bbsplit_fasta_list, checkIfExists: true).splitCsv()
-        ch_bbsplit_fasta_list = channel.value(
-            tuple(
-                bbsplit_rows.collect { row -> row[0] },
-                bbsplit_rows.collect { row -> file(row[1], checkIfExists: true) }
-            )
-        )
 
         // Index-only run: no reads
-        def ch_bbsplit: Value<BbmapBbsplitResult> = BBMAP_BBSPLIT(
-            channel.value(record(id: 'bbsplit_index', meta: [:], reads: [])),
-            ch_no_path,
-            ch_fasta,
-            ch_bbsplit_fasta_list,
-            true
+        def ch_bbsplit: Value<Record> = BBMAP_BBSPLIT(
+            ch_fasta.map { fasta_file ->
+                record(
+                    meta:             record(id: 'bbsplit_index'),
+                    reads:            [] as List<Path>,
+                    index:            null as Path,
+                    primary_ref:      fasta_file,
+                    other_ref_names:  bbsplit_rows.collect { row -> row[0] as String }.toList(),
+                    other_ref_paths:  bbsplit_rows.collect { row -> file(row[1], checkIfExists: true) }.toList(),
+                    only_build_index: true
+                )
+            }
         )
         ch_bbsplit_index = ch_bbsplit.map { r -> r.index }
         ch_bbsplit_log   = ch_bbsplit.map { r -> r.log }
@@ -127,15 +116,15 @@ workflow PREPARE_GENOME_INDICES {
     // 3) SortMeRNA index
     //-------------------------------------------------------------
     if ('sortmerna' in prepare_tool_indices && sortmerna_index && sortmerna_index.endsWith('.tar.gz')) {
-        ch_sortmerna_index = UNTAR_SORTMERNA_INDEX(record(id: 'sortmerna_index', meta: [:], archive: file(sortmerna_index, checkIfExists: true))).map { r -> r.dir }
+        ch_sortmerna_index = UNTAR_SORTMERNA_INDEX(record(meta: record(id: 'sortmerna_index'), archive: file(sortmerna_index, checkIfExists: true))).map { r -> r.dir }
     } else if ('sortmerna' in prepare_tool_indices && sortmerna_index) {
         ch_sortmerna_index = channel.value(file(sortmerna_index, checkIfExists: true))
     } else if ('sortmerna' in prepare_tool_indices) {
         // Index-only run: no reads
-        def ch_sortmerna_built: Value<SortmernaResult> = SORTMERNA_INDEX(
-            channel.value(record(id: 'rrna_refs', meta: [:], reads: [])),
-            ch_rrna_fastas.collect().map { refs -> refs.toList() },
-            ch_no_path
+        def ch_sortmerna_built: Value<Record> = SORTMERNA_INDEX(
+            ch_rrna_fastas.collect().map { refs ->
+                record(meta: record(id: 'rrna_refs'), reads: [], fastas: refs.toList(), index: null)
+            }
         )
         ch_sortmerna_index = ch_sortmerna_built.map { r -> r.index }
     } else {
@@ -147,7 +136,7 @@ workflow PREPARE_GENOME_INDICES {
     //-------------------------------------------------------------
     // No need to build as that is handled in the fastq_remove_rrna subworkflow from nf-core
     if ('bowtie2_rrna' in prepare_tool_indices && bowtie2_rrna_index.endsWith('.tar.gz')) {
-        ch_bowtie2_rrna_index = UNTAR_BOWTIE2_RRNA_INDEX(record(id: 'bowtie2_rrna_index', meta: [:], archive: file(bowtie2_rrna_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bowtie2_rrna_index = UNTAR_BOWTIE2_RRNA_INDEX(record(meta: record(id: 'bowtie2_rrna_index'), archive: file(bowtie2_rrna_index, checkIfExists: true))).map { r -> r.dir }
     } else if ('bowtie2_rrna' in prepare_tool_indices) {
         ch_bowtie2_rrna_index = channel.value(file(bowtie2_rrna_index, checkIfExists: true))
     } else {
@@ -165,18 +154,19 @@ workflow PREPARE_GENOME_INDICES {
     def build_star = prepare_tool_indices.intersect(['star_salmon', 'star_rsem']) ? true : false
     if (build_star && use_parabricks_star && fasta_provided) {
         // Parabricks needs its own STAR index built with its bundled STAR version
-        def ch_star_generated: Value<StarGenomegenerateResult> = PARABRICKS_STARGENOMEGENERATE(
-            ch_fasta.map { item -> record(id: 'genome', meta: [:], fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') },
-            ch_gtf
+        def ch_star_generated: Value<Record> = PARABRICKS_STARGENOMEGENERATE(
+            ch_fasta
+                .map { item -> record(meta: record(id: 'genome'), fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
+                .combine(gtf: ch_gtf)
         )
         ch_star_index         = ch_star_generated.map { r -> r.index }
         ch_star_index_publish = ch_star_index
     } else if (build_star && star_index) {
         if (star_index.endsWith('.tar.gz')) {
-            ch_star_raw = UNTAR_STAR_INDEX(record(id: 'star_index', meta: [:], archive: file(star_index, checkIfExists: true)))
-                .map { r -> record(id: r.id, meta: r.meta, index: r.dir) }
+            ch_star_raw = UNTAR_STAR_INDEX(record(meta: record(id: 'star_index'), archive: file(star_index, checkIfExists: true)))
+                .map { r -> record(meta: r.meta, index: r.dir) }
         } else {
-            ch_star_raw = channel.value(record(id: 'star_index', meta: [:], index: file(star_index, checkIfExists: true)))
+            ch_star_raw = channel.value(record(meta: record(id: 'star_index'), index: file(star_index, checkIfExists: true)))
         }
         ch_star_index_publish = ch_star_raw.map { r -> r.index }
         if (star_index_legacy) {
@@ -186,8 +176,9 @@ workflow PREPARE_GENOME_INDICES {
         }
     } else if (build_star && fasta_provided) {
         ch_star_generated = STAR_GENOMEGENERATE(
-            ch_fasta.map { item -> record(id: 'genome', meta: [:], fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') },
-            ch_gtf
+            ch_fasta
+                .map { item -> record(meta: record(id: 'genome'), fasta: item, args: prokaryotic ? '--sjdbGTFfeatureExon CDS' : '') }
+                .combine(gtf: ch_gtf)
         )
         ch_star_index         = ch_star_generated.map { r -> r.index }
         ch_star_index_publish = ch_star_index
@@ -202,20 +193,20 @@ workflow PREPARE_GENOME_INDICES {
     // ch_rsem_transcript_fasta is the incidental *transcripts.fa the index step also emits; unused by the pipeline, published under --save_reference.
     def build_rsem = 'star_rsem' in prepare_tool_indices
     if (build_rsem && rsem_index && rsem_index.endsWith('.tar.gz')) {
-        ch_rsem_index            = UNTAR_RSEM_INDEX(record(id: 'rsem_index', meta: [:], archive: file(rsem_index, checkIfExists: true))).map { r -> r.dir }
+        ch_rsem_index            = UNTAR_RSEM_INDEX(record(meta: record(id: 'rsem_index'), archive: file(rsem_index, checkIfExists: true))).map { r -> r.dir }
         ch_rsem_transcript_fasta = ch_no_path
     } else if (build_rsem && rsem_index) {
         ch_rsem_index            = channel.value(file(rsem_index, checkIfExists: true))
         ch_rsem_transcript_fasta = ch_no_path
     } else if (build_rsem && fasta_provided && use_sentieon_star) {
         ch_rsem_reference        = SENTIEON_RSEM_PREPAREREFERENCE_GENOME(
-            ch_fasta.map { fasta_file -> record(id: 'genome', meta: [id: 'genome'], fasta: fasta_file) }.combine(gtf: ch_gtf)
+            ch_fasta.map { fasta_file -> record(meta: record(id: 'genome'), fasta: fasta_file) }.combine(gtf: ch_gtf)
         )
         ch_rsem_index            = ch_rsem_reference.map { r -> r.index }
         ch_rsem_transcript_fasta = ch_rsem_reference.map { r -> r.transcript_fasta }
     } else if (build_rsem && fasta_provided) {
         ch_rsem_reference        = RSEM_PREPAREREFERENCE_GENOME(
-            ch_fasta.map { fasta_file -> record(id: 'genome', meta: [id: 'genome'], fasta: fasta_file) }.combine(gtf: ch_gtf)
+            ch_fasta.map { fasta_file -> record(meta: record(id: 'genome'), fasta: fasta_file) }.combine(gtf: ch_gtf)
         )
         ch_rsem_index            = ch_rsem_reference.map { r -> r.index }
         ch_rsem_transcript_fasta = ch_rsem_reference.map { r -> r.transcript_fasta }
@@ -231,12 +222,12 @@ workflow PREPARE_GENOME_INDICES {
     if (build_hisat2 && splicesites) {
         ch_splicesites = channel.value(file(splicesites, checkIfExists: true))
     } else if (build_hisat2 && fasta_provided) {
-        ch_splicesites = HISAT2_EXTRACTSPLICESITES(ch_gtf.map { item -> record(id: 'genome', meta: [:], gtf: item) }).map { r -> r.splicesites }
+        ch_splicesites = HISAT2_EXTRACTSPLICESITES(ch_gtf.map { item -> record(meta: record(id: 'genome'), gtf: item) }).map { r -> r.splicesites }
     } else {
         ch_splicesites = ch_no_path
     }
     if (build_hisat2 && hisat2_index && hisat2_index.endsWith('.tar.gz')) {
-        ch_hisat2_index = UNTAR_HISAT2_INDEX(record(id: 'hisat2_index', meta: [:], archive: file(hisat2_index, checkIfExists: true))).map { r -> r.dir }
+        ch_hisat2_index = UNTAR_HISAT2_INDEX(record(meta: record(id: 'hisat2_index'), archive: file(hisat2_index, checkIfExists: true))).map { r -> r.dir }
     } else if (build_hisat2 && hisat2_index) {
         ch_hisat2_index = channel.value(file(hisat2_index, checkIfExists: true))
     } else if (build_hisat2 && fasta_provided) {
@@ -244,8 +235,7 @@ workflow PREPARE_GENOME_INDICES {
             ch_fasta
                 .combine(ch_gtf)
                 .combine(ch_splicesites)
-                .map { fasta_file, gtf_file, ss_file -> record(id: 'genome', meta: [:], fasta: fasta_file, gtf: gtf_file, splicesites: ss_file) },
-            channel.value(memoryToGiga(hisat2_build_memory))
+                .map { fasta_file, gtf_file, ss_file -> record(meta: record(id: 'genome'), fasta: fasta_file, gtf: gtf_file, splicesites: ss_file, hisat2_build_memory: memoryToGiga(hisat2_build_memory)) }
         ).map { r -> r.index }
     } else {
         ch_hisat2_index = ch_no_path
@@ -256,12 +246,12 @@ workflow PREPARE_GENOME_INDICES {
     //---------------------------------------------------------
     def build_bowtie2 = 'bowtie2_salmon' in prepare_tool_indices
     if (build_bowtie2 && bowtie2_index && bowtie2_index.endsWith('.tar.gz')) {
-        ch_bowtie2_index = UNTAR_BOWTIE2_INDEX(record(id: 'bowtie2_index', meta: [:], archive: file(bowtie2_index, checkIfExists: true))).map { r -> r.dir }
+        ch_bowtie2_index = UNTAR_BOWTIE2_INDEX(record(meta: record(id: 'bowtie2_index'), archive: file(bowtie2_index, checkIfExists: true))).map { r -> r.dir }
     } else if (build_bowtie2 && bowtie2_index) {
         ch_bowtie2_index = channel.value(file(bowtie2_index, checkIfExists: true))
     } else if (build_bowtie2) {
         ch_bowtie2_index = BOWTIE2_BUILD(
-            ch_transcript_fasta.map { fasta_file -> record(id: 'transcripts', meta: [id: 'transcripts'], fasta: fasta_file) }
+            ch_transcript_fasta.map { fasta_file -> record(meta: record(id: 'transcripts'), fasta: fasta_file) }
         ).map { r -> r.index }
     } else {
         ch_bowtie2_index = ch_no_path
@@ -271,47 +261,47 @@ workflow PREPARE_GENOME_INDICES {
     // 8) Salmon index -> can skip genome if transcript_fasta is enough
     //------------------------------------------------------
     if (salmon_index && salmon_index.endsWith('.tar.gz')) {
-        ch_salmon_index = UNTAR_SALMON_INDEX(record(id: 'salmon_index', meta: [:], archive: file(salmon_index))).map { r -> r.dir }
+        ch_salmon_index = UNTAR_SALMON_INDEX(record(meta: record(id: 'salmon_index'), archive: file(salmon_index))).map { r -> r.dir }
     } else if (salmon_index) {
         ch_salmon_index = channel.value(file(salmon_index))
     } else if ('salmon' in prepare_tool_indices && fasta_provided) {
         // genome_fasta may be null (no decoys)
-        def ch_salmon_built: Value<SalmonIndexResult> = SALMON_INDEX(
+        def ch_salmon_built: Value<Record> = SALMON_INDEX(
             ch_transcript_fasta
-                .map { transcript_fasta_file -> record(id: 'salmon_index', meta: [:], args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
+                .map { transcript_fasta_file -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
                 .combine(genome_fasta: ch_fasta)
         )
         ch_salmon_index = ch_salmon_built.map { r -> r.index }
     } else if ('salmon' in prepare_tool_indices) {
         ch_salmon_built = SALMON_INDEX(
-            ch_transcript_fasta.map { item -> record(id: 'salmon_index', meta: [:], args: tool_args.salmon_index, transcript_fasta: item, genome_fasta: null) }
+            ch_transcript_fasta.map { item -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: item, genome_fasta: null) }
         )
         ch_salmon_index = ch_salmon_built.map { r -> r.index }
     } else {
         // Strandedness inference needs a Salmon index even without --pseudo_aligner salmon. Whether
         // any sample asks for it is only known once the samplesheet has been read, so the build
         // is gated on that value.
-        def ch_salmon_gated: Channel<SalmonIndexResult> = SALMON_INDEX(
+        def ch_salmon_gated: Channel<Record> = SALMON_INDEX(
             ch_transcript_fasta
-                .map { transcript_fasta_file -> record(id: 'salmon_index', meta: [:], args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
+                .map { transcript_fasta_file -> record(meta: record(id: 'salmon_index'), args: tool_args.salmon_index, transcript_fasta: transcript_fasta_file) }
                 .combine(genome_fasta: ch_fasta)
                 .combine(any_auto: any_auto_strandedness)
                 .flatMap { r ->
-                    r.any_auto ? [ record(id: r.id, meta: r.meta, args: r.args, transcript_fasta: r.transcript_fasta, genome_fasta: fasta_provided ? r.genome_fasta : null) ] : []
+                    r.any_auto ? [ record(meta: r.meta, args: r.args, transcript_fasta: r.transcript_fasta, genome_fasta: fasta_provided ? r.genome_fasta : null) ] : []
                 }
         )
-        ch_salmon_index = ch_salmon_gated.collect().map { rs -> rs.isEmpty() ? null : rs.toList().first().index }
+        ch_salmon_index = ch_salmon_gated.collect().map { rs -> rs.isEmpty() ? null : rs.toList().first().index as Path }
     }
 
     //--------------------------------------------------
     // 9) Kallisto index -> only needs transcript FASTA
     //--------------------------------------------------
     if (kallisto_index && kallisto_index.endsWith('.tar.gz')) {
-        ch_kallisto_index = UNTAR_KALLISTO_INDEX(record(id: 'kallisto_index', meta: [:], archive: file(kallisto_index))).map { r -> r.dir }
+        ch_kallisto_index = UNTAR_KALLISTO_INDEX(record(meta: record(id: 'kallisto_index'), archive: file(kallisto_index))).map { r -> r.dir }
     } else if (kallisto_index) {
         ch_kallisto_index = channel.value(file(kallisto_index))
     } else if ('kallisto' in prepare_tool_indices) {
-        def ch_kallisto_built: Value<KallistoIndexResult> = KALLISTO_INDEX(ch_transcript_fasta.map { item -> record(id: 'kallisto_index', meta: [:], fasta: item, args: tool_args.kallisto_index) })
+        def ch_kallisto_built: Value<Record> = KALLISTO_INDEX(ch_transcript_fasta.map { item -> record(meta: record(id: 'kallisto_index'), fasta: item, args: tool_args.kallisto_index) })
         ch_kallisto_index = ch_kallisto_built.map { r -> r.index }
     } else {
         ch_kallisto_index = ch_no_path
@@ -350,5 +340,5 @@ workflow PREPARE_GENOME_INDICES {
     bowtie2_index:      Value<Path?>            = ch_bowtie2_index      // bowtie2/index/, null when absent
     salmon_index:       Value<Path?>            = ch_salmon_index       // salmon/index/, null when absent
     kallisto_index:     Value<Path?>            = ch_kallisto_index     // kallisto/index/, null when absent
-    indices:            Channel<GenomeArtifact> = ch_indices            // one record per index/log actually built or supplied
+    indices:            Channel<Record>         = ch_indices            // one record per index/log actually built or supplied
 }

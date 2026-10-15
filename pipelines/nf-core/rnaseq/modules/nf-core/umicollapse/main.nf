@@ -1,23 +1,7 @@
 nextflow.enable.types = true
 
-
-record UmicollapseInput {
-    id:   String
-    meta: Map
-    bam:  Path
-    args: String?
-}
-
-record UmicollapseResult {
-    id:    String
-    meta:  Map
-    bam:   Path?
-    fastq: Path?
-    log:   Path
-}
-
 process UMICOLLAPSE {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label "process_high"
     label "process_high_memory"
 
@@ -27,25 +11,28 @@ process UMICOLLAPSE {
         : 'quay.io/biocontainers/umicollapse:1.1.0--hdfd78af_0'}"
 
     input:
-    sample: UmicollapseInput
-    mode: String
+    record(
+        meta: Record,
+        bam:  Path,
+        args: String?,
+        mode: String
+    )
 
     output:
     record(
-        id:    sample.id,
-        meta:  sample.meta,
+        meta:  meta,
         bam:   file('*.bam', optional: true),
         fastq: file('*dedup*fastq.gz', optional: true),
         log:   file('*_UMICollapse.log')
-    ) as UmicollapseResult
+    )
 
     topic:
     // WARN: Version information not provided by tool on CLI. Please update this string when bumping container versions.
     tuple(task.process, 'umicollapse', '1.1.0-0') >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    def prefix = task.ext.prefix ?: "${meta.id}"
     // Memory allocation: We need to make sure that both heap and stack size is sufficiently large for
     // umicollapse. We set the stack size to 5% of the available memory, the heap size to 90%
     // which leaves 5% for stuff happening outside of java without the scheduler killing the process.
@@ -65,13 +52,13 @@ process UMICOLLAPSE {
         -Xss${max_stack_size_mega}M \\
         -jar "\$UMICOLLAPSE_JAR" \\
         ${mode} \\
-        -i ${sample.bam} \\
+        -i ${bam} \\
         -o ${prefix}.${extension} \\
-        ${args} | tee ${prefix}_UMICollapse.log
+        ${tool_args} | tee ${prefix}_UMICollapse.log
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     if (mode !in ['fastq', 'bam']) {
         error("Mode must be one of 'fastq' or 'bam'.")
     }

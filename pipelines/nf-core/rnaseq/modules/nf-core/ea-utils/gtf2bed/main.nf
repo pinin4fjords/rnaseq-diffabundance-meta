@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { GtfInput } from '../../types'
-
-record EautilsGtf2bedResult {
-    id:   String
-    meta: Map
-    bed:  Path
-}
-
 process EAUTILS_GTF2BED {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_low'
 
     conda "${moduleDir}/environment.yml"
@@ -18,16 +10,19 @@ process EAUTILS_GTF2BED {
         'quay.io/biocontainers/perl:5.26.2' }"
 
     input:
-    sample: GtfInput
+    record(
+        meta: Record,
+        gtf:  Path
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, bed: file("${prefix}.bed")) as EautilsGtf2bedResult
+    record(meta: meta, bed: file("${prefix}.bed"))
 
     topic:
     file('versions.yml') >> 'versions'
 
     script:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     args   = task.ext.args ?: ''
 
     """
@@ -37,7 +32,7 @@ process EAUTILS_GTF2BED {
     template 'gtf2bed.pl'
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.bed
 

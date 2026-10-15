@@ -1,21 +1,7 @@
 nextflow.enable.types = true
 
-
-record CustomGtffilterInput {
-    id:   String
-    meta: Map
-    gtf:  Path
-    args: String?
-}
-
-record CustomGtffilterResult {
-    id:   String
-    meta: Map
-    gtf:  Path
-}
-
 process CUSTOM_GTFFILTER {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -24,29 +10,33 @@ process CUSTOM_GTFFILTER {
 :         'community.wave.seqera.io/library/python:3.14.5--dc8358b3c5eeb927' }"
 
     input:
-    sample: CustomGtffilterInput
-    fasta: Path?
+    record(
+        meta:  Record,
+        gtf:   Path,
+        args:  String?,
+        fasta: Path?
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, gtf: file("${prefix}.${suffix}")) as CustomGtffilterResult
+    record(meta: meta, gtf: file("${prefix}.${suffix}"))
 
     topic:
     file('versions.yml') >> 'versions'
 
     script:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
-    suffix = "gtf" + (sample.gtf.extension == 'gz' ? '.gz' : '')
-    args   = task.ext.args ?: sample.args ?: ''
+    prefix = task.ext.prefix ?: "${meta.id}"
+    suffix = "gtf" + (gtf.extension == 'gz' ? '.gz' : '')
+    tool_args = task.ext.args ?: args ?: ''
 
     """
-    echo $args
+    echo $tool_args
     """
 
     template 'gtffilter.py'
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
-    suffix = "gtf" + (sample.gtf.extension == 'gz' ? '.gz' : '')
+    prefix = task.ext.prefix ?: "${meta.id}"
+    suffix = "gtf" + (gtf.extension == 'gz' ? '.gz' : '')
     """
     touch ${prefix}.${suffix}
 

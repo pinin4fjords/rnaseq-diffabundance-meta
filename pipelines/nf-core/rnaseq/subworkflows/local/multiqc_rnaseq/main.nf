@@ -6,8 +6,6 @@ nextflow.enable.types = true
 
 include { MULTIQC                    } from '../../../modules/nf-core/multiqc'
 include { workflowVersionToYAML      } from '../../nf-core/utils_nfcore_pipeline'
-include { Sample; MultiqcFiles; SampleRuns; TrimReadCount; PercentMappedPass; StrandData } from '../../../modules/nf-core/types'
-include { MultiqcReport } from '../../../modules/nf-core/multiqc/main'
 include { methodsDescriptionText     } from '../utils_nfcore_rnaseq_pipeline'
 include { workflowSummaryMultiqcYaml } from './helpers'
 include { multiqcNameReplacementLines } from './helpers'
@@ -16,22 +14,18 @@ include { loadMultiqcAsset           } from './helpers'
 include { strandCheckSummaryYaml     } from './helpers'
 include { strandCheckCompositionYaml } from './helpers'
 
-record MultiqcArgs {
-    multiqc: String?
-}
-
 workflow MULTIQC_RNASEQ {
 
     take:
     ch_sample_ids: Channel<String>                // one id per input sample; every sample gets a report under skip_quantification_merge
-    ch_mqc_files: Channel<MultiqcFiles>           // per-sample files from each stage, for both report modes
-    ch_mqc_sample_only: Channel<MultiqcFiles>     // per-sample files for the per-sample reports only
+    ch_mqc_files: Channel<Record>                 // record(meta, files): per-sample files from each stage, for both report modes
+    ch_mqc_sample_only: Channel<Record>           // record(meta, files): per-sample files for the per-sample reports only
     ch_mqc_report_only: Channel<Path>             // files for the merged report only
-    ch_strand_data: Channel<StrandData>           // per-sample strand classification, used for the Strandedness checks section
-    ch_trim_read_count: Channel<TrimReadCount>  // for fail_trimmed section
-    ch_percent_mapped_pass: Channel<PercentMappedPass> // for fail_mapped section
+    ch_strand_data: Channel<Record>               // per-sample strand classification, used for the Strandedness checks section
+    ch_trim_read_count: Channel<Record>           // record(meta, num_reads), for fail_trimmed section
+    ch_percent_mapped_pass: Channel<Record>       // record(meta, percent_mapped, pass), for fail_mapped section
     aligner_display_name: String                  // display name of the aligner used for the percent_mapped metric, e.g. 'STAR uniquely mapped reads' or 'Bowtie2 overall alignment rate'
-    ch_fastq: Channel<SampleRuns>                 // one entry per sample, one run per sequencing run
+    ch_fastq: Channel<Record>                     // record(meta, runs): one entry per sample, one run per sequencing run
     ch_collated_versions: Channel<Path>           // versions yaml
     mqc_default_config: Path                      // pipeline-bundled MultiQC config
     mqc_custom_config: Path?                      // optional user MultiQC config
@@ -42,7 +36,7 @@ workflow MULTIQC_RNASEQ {
     sample_status_header: Path                    // MultiQC custom content header for fail_* tables
     min_trimmed_reads: Integer                    // threshold for fail_trimmed classification
     skip_quantification_merge: Boolean
-    tool_args: MultiqcArgs // MultiQC options
+    tool_args: Record // MultiQC options
 
     main:
 
@@ -62,16 +56,16 @@ workflow MULTIQC_RNASEQ {
         .filter { r -> r.num_reads <= min_trimmed_reads }
         .map { r ->
             record(
-                id:      r.id,
-                name:    "${r.id}_fail_trimmed_samples_mqc.tsv",
-                content: "Sample\tReads after trimming\n${r.id}\t${r.num_reads}\n"
+                meta:    r.meta,
+                name:    "${r.meta.id}_fail_trimmed_samples_mqc.tsv",
+                content: "Sample\tReads after trimming\n${r.meta.id}\t${r.num_reads}\n"
             )
         }
 
     ch_fail_trimmed_by_id = ch_fail_trimmed_rows
         .collectFile { r -> [r.name, r.content] }
         .map { p -> p as Path }
-        .map { f -> record(id: f.name.replace('_fail_trimmed_samples_mqc.tsv', ''), fail_trimmed: f) }
+        .map { f -> record(meta: record(id: f.name.replace('_fail_trimmed_samples_mqc.tsv', '')), fail_trimmed: f) }
 
     ch_fail_trimmed_merged = ch_fail_trimmed_rows
         .map { r -> r.content }
@@ -82,16 +76,16 @@ workflow MULTIQC_RNASEQ {
         .filter { r -> r.pass != null && !r.pass }
         .map { r ->
             record(
-                id:      r.id,
-                name:    "${r.id}_fail_mapped_samples_mqc.tsv",
-                content: status_header_text + "Sample\t${aligner_display_name} (%)\n${r.id}\t${r.percent_mapped}\n"
+                meta:    r.meta,
+                name:    "${r.meta.id}_fail_mapped_samples_mqc.tsv",
+                content: status_header_text + "Sample\t${aligner_display_name} (%)\n${r.meta.id}\t${r.percent_mapped}\n"
             )
         }
 
     ch_fail_mapped_by_id = ch_fail_mapped_rows
         .collectFile { r -> [r.name, r.content] }
         .map { p -> p as Path }
-        .map { f -> record(id: f.name.replace('_fail_mapped_samples_mqc.tsv', ''), fail_mapped: f) }
+        .map { f -> record(meta: record(id: f.name.replace('_fail_mapped_samples_mqc.tsv', '')), fail_mapped: f) }
 
     ch_fail_mapped_merged = ch_fail_mapped_rows
         .map { r -> r.content }
@@ -139,33 +133,33 @@ workflow MULTIQC_RNASEQ {
     //     the global versions topic.
     //
     // Each branch ends with a record matching the MULTIQC input
-    // contract (id, meta, files, configs, logo, replace_names, sample_names).
+    // contract (meta, files, configs, logo, replace_names, sample_names).
     //
     if (skip_quantification_merge) {
         ch_strand_summary_by_id = ch_strand_data
-            .collectFile { r -> ["${r.id}_strand_check_summary_mqc.json", strandCheckSummaryYaml(strand_summary_static, [r]) as String] }
+            .collectFile { r -> ["${r.meta.id}_strand_check_summary_mqc.json", strandCheckSummaryYaml(strand_summary_static, [r]) as String] }
             .map { p -> p as Path }
-            .map { f -> record(id: f.name.replace('_strand_check_summary_mqc.json', ''), strand_summary: f) }
+            .map { f -> record(meta: record(id: f.name.replace('_strand_check_summary_mqc.json', '')), strand_summary: f) }
 
         ch_strand_composition_by_id = ch_strand_data
-            .collectFile { r -> ["${r.id}_strand_check_composition_mqc.json", strandCheckCompositionYaml(strand_composition_static, [r]) as String] }
+            .collectFile { r -> ["${r.meta.id}_strand_check_composition_mqc.json", strandCheckCompositionYaml(strand_composition_static, [r]) as String] }
             .map { p -> p as Path }
-            .map { f -> record(id: f.name.replace('_strand_check_composition_mqc.json', ''), strand_composition: f) }
+            .map { f -> record(meta: record(id: f.name.replace('_strand_check_composition_mqc.json', '')), strand_composition: f) }
 
         // One empty contribution per sample keeps samples that no stage contributed files for.
-        def ch_no_files: Channel<MultiqcFiles> = ch_sample_ids.map { id -> record(id: id, files: []) }
+        def ch_no_files: Channel<Record> = ch_sample_ids.map { id -> record(meta: record(id: id), files: []) }
         ch_per_sample_bundle = ch_no_files
             .mix(ch_mqc_files)
             .mix(ch_mqc_sample_only)
-            .mix(ch_fail_trimmed_by_id.map { r -> record(id: r.id, files: [r.fail_trimmed]) })
-            .mix(ch_fail_mapped_by_id.map { r -> record(id: r.id, files: [r.fail_mapped]) })
-            .mix(ch_strand_summary_by_id.map { r -> record(id: r.id, files: [r.strand_summary]) })
-            .mix(ch_strand_composition_by_id.map { r -> record(id: r.id, files: [r.strand_composition]) })
+            .mix(ch_fail_trimmed_by_id.map { r -> record(meta: r.meta, files: [r.fail_trimmed]) })
+            .mix(ch_fail_mapped_by_id.map { r -> record(meta: r.meta, files: [r.fail_mapped]) })
+            .mix(ch_strand_summary_by_id.map { r -> record(meta: r.meta, files: [r.strand_summary]) })
+            .mix(ch_strand_composition_by_id.map { r -> record(meta: r.meta, files: [r.strand_composition]) })
             .collect()
             .flatMap { rs ->
-                rs.collect { r -> r.id }.toSet().toSorted().collect { id ->
-                    def files = rs.findAll { r -> r.id == id }.collectMany { r -> r.files }
-                    record(id: id, files: files.toSorted { f -> f.name })
+                rs.collect { r -> r.meta.id }.toSet().toSorted().collect { id ->
+                    def files = rs.findAll { r -> r.meta.id == id }.collectMany { r -> r.files }
+                    record(meta: record(id: id), files: files.toSorted { f -> f.name })
                 }
             }
 
@@ -189,8 +183,7 @@ workflow MULTIQC_RNASEQ {
             .map { r ->
                 // No replace_names: each per-sample report contains one sample.
                 record(
-                    id:             r.id,
-                    meta:           [id: r.id],
+                    meta:           r.meta,
                     args:           tool_args.multiqc,
                     multiqc_files:  r.files + r.static_globals + r.run_globals,
                     multiqc_config: [mqc_default_config, r.dyn, mqc_custom_config].findAll { cfg -> cfg != null }.toList(),
@@ -243,8 +236,7 @@ workflow MULTIQC_RNASEQ {
             .flatMap { r ->
                 [
                     record(
-                        id:             'multiqc_report',
-                        meta:           [id: 'multiqc_report'],
+                        meta:           record(id: 'multiqc_report'),
                         args:           tool_args.multiqc,
                         multiqc_files:  r.files,
                         multiqc_config: [mqc_default_config, r.dyn, mqc_custom_config].findAll { cfg -> cfg != null }.toList(),
@@ -263,5 +255,5 @@ workflow MULTIQC_RNASEQ {
     ch_results = MULTIQC(ch_multiqc_input)
 
     emit:
-    ch_results // channel: MultiqcReport
+    ch_results // channel: record(meta, report, data, plots)
 }

@@ -1,22 +1,7 @@
 nextflow.enable.types = true
 
-
-record UmitoolsExtractInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
-record UmitoolsExtractResult {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    log:   Path
-}
-
 process UMITOOLS_EXTRACT {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label "process_single"
     label "process_long"
 
@@ -26,48 +11,51 @@ process UMITOOLS_EXTRACT {
         'community.wave.seqera.io/library/umi_tools_future_matplotlib_numpy_pruned:1ee668bafc8c9f81' }"
 
     input:
-    sample: UmitoolsExtractInput
+    record(
+        meta:  Record,
+        reads: List<Path>,
+        args:  String?
+    )
 
     output:
     record(
-        id:    sample.id,
-        meta:  sample.meta,
+        meta:  meta,
         reads: files('*.fastq.gz').toSorted { f -> f.name },
         log:   file('*.log')
-    ) as UmitoolsExtractResult
+    )
 
     topic:
     tuple(task.process, 'umitools', eval("umi_tools --version | sed -n '/version:/s/.*: //p'")) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def reads_names = sample.reads instanceof Path ? "${sample.reads}" : sample.reads.join(' ')
-    if (sample.meta.single_end) {
+    def tool_args = task.ext.args ?: args ?: ''
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    def reads_names = reads instanceof Path ? "${reads}" : reads.join(' ')
+    if (meta.single_end) {
         """
         umi_tools \\
             extract \\
             -I ${reads_names} \\
             -S ${prefix}.umi_extract.fastq.gz \\
-            $args \\
+            $tool_args \\
             > ${prefix}.umi_extract.log
         """
     }  else {
         """
         umi_tools \\
             extract \\
-            -I ${sample.reads[0]} \\
-            --read2-in=${sample.reads[1]} \\
+            -I ${reads[0]} \\
+            --read2-in=${reads[1]} \\
             -S ${prefix}.umi_extract_1.fastq.gz \\
             --read2-out=${prefix}.umi_extract_2.fastq.gz \\
-            $args \\
+            $tool_args \\
             > ${prefix}.umi_extract.log
         """
     }
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    if (sample.meta.single_end) {
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    if (meta.single_end) {
         output_command = "echo '' | gzip > ${prefix}.umi_extract.fastq.gz"
     } else {
         output_command = "echo '' | gzip > ${prefix}.umi_extract_1.fastq.gz ;"

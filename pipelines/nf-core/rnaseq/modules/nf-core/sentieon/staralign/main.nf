@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { StarAlignResult } from '../../types'
-
-record SentieonStaralignInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
 process SENTIEON_STARALIGN {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_high'
     label 'sentieon'
 
@@ -21,18 +12,21 @@ process SENTIEON_STARALIGN {
         : 'community.wave.seqera.io/library/sentieon:202503.02--def60555294d04fa'}"
 
     input:
-    sample: SentieonStaralignInput
-    index: Path
-    gtf: Path?
-    star_ignore_sjdbgtf: Boolean
+    record(
+        meta:                Record,
+        reads:               List<Path>,
+        args:                String?,
+        index:               Path,
+        gtf:                 Path?,
+        star_ignore_sjdbgtf: Boolean
+    )
 
     stage:
-    stageAs sample.reads, 'input*/*'
+    stageAs reads, 'input*/*'
 
     output:
     record(
-        id:                 sample.id,
-        meta:               sample.meta,
+        meta:               meta,
         raw_bams:           files('*d.out.bam', optional: true).toSorted { f -> f.name },
         bam_sorted:         file("${prefix}.sortedByCoord.out.bam", optional: true),
         bam_sorted_aligned: file("${prefix}.Aligned.sortedByCoord.out.bam", optional: true),
@@ -54,22 +48,22 @@ process SENTIEON_STARALIGN {
             log_progress: file('*Log.progress.out'),
             tab:          files('*.tab', optional: true).toSorted { f -> f.name }
         )
-    ) as StarAlignResult
+    )
 
     topic:
     tuple(task.process, 'star', eval('sentieon STAR --version | sed -e "s/STAR_//g"')) >> 'versions'
     tuple(task.process, 'sentieon', eval('sentieon driver --version 2>&1 | sed -e "s/sentieon-genomics-//g"')) >> 'versions'
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def read_pairs = sample.reads.collate(2)
-    def reads1 = sample.meta.single_end ? sample.reads : read_pairs.collect { pair -> pair[0] }.toList()
-    def reads2 = sample.meta.single_end ? [] : read_pairs.collect { pair -> pair[1] }.toList()
+    def tool_args = task.ext.args ?: args ?: ''
+    prefix = task.ext.prefix ?: "${meta.id}"
+    def read_pairs = reads.collate(2)
+    def reads1 = meta.single_end ? reads : read_pairs.collect { pair -> pair[0] }.toList()
+    def reads2 = meta.single_end ? [] : read_pairs.collect { pair -> pair[1] }.toList()
     def ignore_gtf = star_ignore_sjdbgtf ? '' : "--sjdbGTFfile ${gtf}"
-    attrRG = args.contains("--outSAMattrRGline") ? "" : "--outSAMattrRGline 'ID:${prefix}' 'SM:${prefix}'"
-    def out_sam_type = args.contains('--outSAMtype') ? '' : '--outSAMtype BAM Unsorted'
-    mv_unsorted_bam = args.contains('--outSAMtype BAM Unsorted SortedByCoordinate') ? "mv ${prefix}.Aligned.out.bam ${prefix}.Aligned.unsort.out.bam" : ''
+    attrRG = tool_args.contains("--outSAMattrRGline") ? "" : "--outSAMattrRGline 'ID:${prefix}' 'SM:${prefix}'"
+    def out_sam_type = tool_args.contains('--outSAMtype') ? '' : '--outSAMtype BAM Unsorted'
+    mv_unsorted_bam = tool_args.contains('--outSAMtype BAM Unsorted SortedByCoordinate') ? "mv ${prefix}.Aligned.out.bam ${prefix}.Aligned.unsort.out.bam" : ''
 
     def sentieonLicense = secrets.SENTIEON_LICENSE_BASE64
         ? "export SENTIEON_LICENSE=\$(mktemp);echo -e \"${secrets.SENTIEON_LICENSE_BASE64}\" | base64 -d > \$SENTIEON_LICENSE; "
@@ -85,7 +79,7 @@ process SENTIEON_STARALIGN {
         ${out_sam_type} \\
         ${ignore_gtf} \\
         ${attrRG} \\
-        ${args}
+        ${tool_args}
 
     ${mv_unsorted_bam}
 
@@ -100,7 +94,7 @@ process SENTIEON_STARALIGN {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     echo "" | gzip > ${prefix}.unmapped_1.fastq.gz
     echo "" | gzip > ${prefix}.unmapped_2.fastq.gz

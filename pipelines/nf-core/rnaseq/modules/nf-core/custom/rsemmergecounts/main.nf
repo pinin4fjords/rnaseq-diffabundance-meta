@@ -1,35 +1,7 @@
 nextflow.enable.types = true
 
-record CustomRsemmergecountsInput {
-    id:       String
-    meta:     Map
-    genes:    List<Path>
-    isoforms: List<Path>
-}
-
-record RsemMerge {
-    counts_gene:       Path
-    tpm_gene:          Path
-    counts_transcript: Path
-    tpm_transcript:    Path
-    genes_long:        Path
-    isoforms_long:     Path
-}
-
-// The single 'all_samples' row of merged RSEM tables; CUSTOM_RSEMMERGECOUNTS output without meta
-record RsemMergeSample {
-    id:         String
-    rsem_merge: RsemMerge
-}
-
-record CustomRsemmergecountsResult {
-    id:         String
-    meta:       Map
-    rsem_merge: RsemMerge
-}
-
 process CUSTOM_RSEMMERGECOUNTS {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label "process_medium"
 
     conda "${moduleDir}/environment.yml"
@@ -38,16 +10,19 @@ process CUSTOM_RSEMMERGECOUNTS {
         'quay.io/nf-core/ubuntu:20.04' }"
 
     input:
-    sample: CustomRsemmergecountsInput
+    record(
+        meta:     Record,
+        genes:    List<Path>,
+        isoforms: List<Path>
+    )
 
     stage:
-    stageAs sample.genes, 'genes/*'
-    stageAs sample.isoforms, 'isoforms/*'
+    stageAs genes, 'genes/*'
+    stageAs isoforms, 'isoforms/*'
 
     output:
     record(
-        id: sample.id,
-        meta: sample.meta,
+        meta:       meta,
         rsem_merge: record(
             counts_gene:       file("${prefix}.gene_counts.tsv"),
             tpm_gene:          file("${prefix}.gene_tpm.tsv"),
@@ -56,13 +31,13 @@ process CUSTOM_RSEMMERGECOUNTS {
             genes_long:        file("${prefix}.genes_long.tsv"),
             isoforms_long:     file("${prefix}.isoforms_long.tsv")
         )
-    ) as CustomRsemmergecountsResult
+    )
 
     topic:
     tuple(task.process, 'sed', eval("sed --version 2>&1 | sed '1!d;s/^.*) //'")) >> 'versions'
 
     script:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     mkdir -p tmp/genes
     cut -f 1,2 `ls ./genes/* | head -n 1` > gene_ids.txt
@@ -105,7 +80,7 @@ process CUSTOM_RSEMMERGECOUNTS {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.gene_counts.tsv
     touch ${prefix}.gene_tpm.tsv

@@ -1,9 +1,7 @@
 nextflow.enable.types = true
 
-include { BamBaiInput; RseqcJunctionSaturation } from '../../types'
-
 process RSEQC_JUNCTIONSATURATION {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_medium'
 
     conda "${moduleDir}/environment.yml"
@@ -12,33 +10,36 @@ process RSEQC_JUNCTIONSATURATION {
         'community.wave.seqera.io/library/rseqc_r-base:2e29d2dfda9cef15' }"
 
     input:
-    sample: BamBaiInput
-    bed: Path
+    record(
+        meta: Record,
+        bam:  Path,
+        bai:  Path,
+        bed:  Path
+    )
 
     output:
     record(
-        id:      sample.id,
-        meta:    sample.meta,
+        meta:    meta,
         pdf:     file("*.pdf"),
         rscript: file("*.r")
-    ) as RseqcJunctionSaturation
+    )
 
     topic:
     tuple(task.process, 'rseqc', eval('junction_saturation.py --version | sed "s/junction_saturation.py //"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     junction_saturation.py \\
-        -i $sample.bam \\
+        -i $bam \\
         -r $bed \\
         -o $prefix \\
         $args
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.junctionSaturation_plot.pdf
     touch ${prefix}.junctionSaturation_plot.r

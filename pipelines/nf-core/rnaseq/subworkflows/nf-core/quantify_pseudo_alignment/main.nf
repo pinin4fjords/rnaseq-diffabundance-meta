@@ -8,14 +8,11 @@ include { SALMON_QUANT     } from '../../../modules/nf-core/salmon/quant'
 include { KALLISTO_QUANT   } from '../../../modules/nf-core/kallisto/quant'
 
 include { QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT } from '../quant_tximport_summarizedexperiment'
-include { ReadsInput; QuantMerged } from '../../../modules/nf-core/types'
-include { KallistoQuantSample } from '../../../modules/nf-core/kallisto/quant/main'
-include { SalmonQuantSample } from '../../../modules/nf-core/salmon/quant/main'
 
 //
 // Salmon quant options: the library type is the given one if it is valid, else derived from the sample strandedness
 //
-def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Map) -> String {
+def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Record) -> String {
     def valid_libtypes = [ 'A', 'U', 'SF', 'SR', 'IS', 'IU', 'ISF', 'ISR', 'OS', 'OU', 'OSF', 'OSR', 'MS', 'MU', 'MSF', 'MSR' ]
     def lib_type = 'A'
     if (libtype) {
@@ -38,7 +35,7 @@ def salmonQuantArgs(libtype: String?, extra_args: String?, meta: Map) -> String 
 //
 // Kallisto quant options: the strandedness of the sample unless the extra options set one
 //
-def kallistoQuantArgs(extra_args: String?, meta: Map) -> String {
+def kallistoQuantArgs(extra_args: String?, meta: Record) -> String {
     def extra = extra_args ?: ''
     def strandedness = (extra.contains('--fr-stranded') || extra.contains('--rf-stranded')) ? '' :
         meta.strandedness == 'forward' ? '--fr-stranded' :
@@ -46,17 +43,10 @@ def kallistoQuantArgs(extra_args: String?, meta: Map) -> String {
     return [ strandedness, extra ].join(' ').trim()
 }
 
-// The Salmon and Kallisto quant options, and the prefix of the merged SummarizedExperiment files
-record QuantPseudoArgs {
-    salmon_quant:   String?
-    kallisto_quant: String?
-    se_prefix:      String?
-}
-
 workflow QUANTIFY_PSEUDO_ALIGNMENT {
     take:
     samplesheet: Value<Path>
-    ch_samples: Channel<ReadsInput>
+    ch_samples: Channel<Record>
     index: Value<Path?>
     transcript_fasta: Value<Path?>
     gtf: Value<Path>
@@ -67,38 +57,34 @@ workflow QUANTIFY_PSEUDO_ALIGNMENT {
     kallisto_quant_fraglen_sd: Integer? // Estimated standard error for fragment length required by Kallisto in single-end mode
     skip_merge: Boolean // skip cross-sample merging, run tximport per-sample
     salmon_libtype: String? // Salmon library type; derived from the sample strandedness when null
-    tool_args: QuantPseudoArgs // extra Salmon and Kallisto quant options (salmon_quant, kallisto_quant) and the prefix of the merged SummarizedExperiment files (se_prefix, default: the sample id)
+    tool_args: Record // extra Salmon and Kallisto quant options (salmon_quant, kallisto_quant) and the prefix of the merged SummarizedExperiment files (se_prefix, default: the sample id)
 
     main:
 
     //
     // Quantify and merge counts across samples
     //
-    def ch_salmon: Channel<SalmonQuantSample>     = channel.empty()
-    def ch_kallisto: Channel<KallistoQuantSample> = channel.empty()
+    def ch_salmon: Channel<Record>   = channel.empty()
+    def ch_kallisto: Channel<Record> = channel.empty()
     if (pseudo_aligner == 'salmon') {
         ch_salmon = SALMON_QUANT(
-            ch_samples.map { r -> r + record(args: salmonQuantArgs(salmon_libtype, tool_args.salmon_quant, r.meta)) },
-            index,
-            gtf,
-            transcript_fasta
+            ch_samples
+                .map { r -> record(meta: r.meta, reads: r.reads, args: salmonQuantArgs(salmon_libtype, tool_args.salmon_quant, r.meta)) }
+                .combine(index: index, gtf: gtf, transcript_fasta: transcript_fasta)
         )
     } else {
         ch_kallisto = KALLISTO_QUANT(
-            ch_samples.map { r -> r + record(args: kallistoQuantArgs(tool_args.kallisto_quant, r.meta)) },
-            index,
-            gtf,
-            null,
-            kallisto_quant_fraglen,
-            kallisto_quant_fraglen_sd
+            ch_samples
+                .map { r -> record(meta: r.meta, reads: r.reads, args: kallistoQuantArgs(tool_args.kallisto_quant, r.meta), chromosomes: null, fragment_length: kallisto_quant_fraglen, fragment_length_sd: kallisto_quant_fraglen_sd) }
+                .combine(index: index, gtf: gtf)
         )
     }
-    def ch_quant_dirs = ch_salmon.mix(ch_kallisto).map { r -> record(id: r.id, meta: r.meta, quants: [ r.quant_dir ]) }
+    def ch_quant_dirs = ch_salmon.mix(ch_kallisto).map { r -> record(meta: r.meta, quants: [ r.quant_dir ]) }
 
     //
     // Post-process quantifications with tximport and SummarizedExperiment
     //
-    def ch_quant_merged: Channel<QuantMerged> = QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT(
+    ch_quant_merged = QUANT_TXIMPORT_SUMMARIZEDEXPERIMENT(
         samplesheet,
         ch_quant_dirs,
         gtf,
@@ -110,7 +96,7 @@ workflow QUANTIFY_PSEUDO_ALIGNMENT {
     )
 
     emit:
-    salmon:   Channel<SalmonQuantSample>   = ch_salmon        // per sample, when pseudo_aligner is salmon
-    kallisto: Channel<KallistoQuantSample> = ch_kallisto      // per sample, when pseudo_aligner is kallisto
-    merged:   Channel<QuantMerged>         = ch_quant_merged  // one row per sample under skip_merge, a single 'all_samples' row otherwise
+    salmon:   Channel<Record> = ch_salmon        // per sample, when pseudo_aligner is salmon
+    kallisto: Channel<Record> = ch_kallisto      // per sample, when pseudo_aligner is kallisto
+    merged:   Channel<Record> = ch_quant_merged  // one row per sample under skip_merge, a single 'all_samples' row otherwise
 }

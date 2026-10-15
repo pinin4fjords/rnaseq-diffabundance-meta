@@ -1,13 +1,7 @@
 nextflow.enable.types = true
 
-record StarGenomeparamsUpgradeResult {
-    id:    String
-    meta:  Map
-    index: Path
-}
-
 process STAR_GENOMEPARAMS_UPGRADE {
-    tag "${sample.meta.id ?: sample.index.name}"
+    tag "${meta.id ?: index.name}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -16,13 +10,16 @@ process STAR_GENOMEPARAMS_UPGRADE {
         'community.wave.seqera.io/library/gawk:5.3.1--e09efb5dfc4b8156' }"
 
     input:
-    sample: StarGenomeparamsUpgradeResult
+    record(
+        meta:  Record,
+        index: Path
+    )
 
     stage:
-    stageAs sample.index, 'input_index'
+    stageAs index, 'input_index'
 
     output:
-    record(id: sample.id, meta: sample.meta, index: file('star')) as StarGenomeparamsUpgradeResult
+    record(meta: meta, index: file('star'))
 
     topic:
     tuple(task.process, 'gawk', eval("awk -Wversion | sed '1!d; s/.*Awk //; s/,.*//'")) >> 'versions'

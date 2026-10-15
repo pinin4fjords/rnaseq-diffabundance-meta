@@ -1,23 +1,7 @@
 nextflow.enable.types = true
 
-
-record CustomCatadditionalfastaInput {
-    id:     String
-    meta:   Map
-    fasta:  Path
-    gtf:    Path
-    prefix: String?
-}
-
-record CustomCatadditionalfastaResult {
-    id:    String
-    meta:  Map
-    fasta: Path
-    gtf:   Path
-}
-
 process CUSTOM_CATADDITIONALFASTA {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
 
     conda "${moduleDir}/environment.yml"
     container "${ workflow.containerEngine in ['singularity', 'apptainer'] && !task.ext.singularity_pull_docker_container ?
@@ -25,32 +9,36 @@ process CUSTOM_CATADDITIONALFASTA {
         'quay.io/biocontainers/python:3.12' }"
 
     input:
-    sample: CustomCatadditionalfastaInput
-    add_fasta: Path
-    biotype: String
+    record(
+        meta:      Record,
+        fasta:     Path,
+        gtf:       Path,
+        prefix:    String?,
+        add_fasta: Path,
+        biotype:   String
+    )
 
     output:
     record(
-        id:    sample.id,
-        meta:  sample.meta,
-        fasta: file("out/${prefix}.fasta"),
-        gtf:   file("out/${prefix}.gtf")
-    ) as CustomCatadditionalfastaResult
+        meta:  meta,
+        fasta: file("out/${out_prefix}.fasta"),
+        gtf:   file("out/${out_prefix}.gtf")
+    )
 
     topic:
     file('versions.yml') >> 'versions'
 
     script:
-    prefix = task.ext.prefix ?: sample.prefix ?: "${sample.meta.id}"
+    out_prefix = task.ext.prefix ?: prefix ?: "${meta.id}"
 
     template 'fasta2gtf.py'
 
     stub:
-    prefix = task.ext.prefix ?: sample.prefix ?: "${sample.meta.id}"
+    out_prefix = task.ext.prefix ?: prefix ?: "${meta.id}"
     """
     mkdir out
-    touch out/${prefix}.fasta
-    touch out/${prefix}.gtf
+    touch out/${out_prefix}.fasta
+    touch out/${out_prefix}.gtf
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { BamInput } from '../../types'
-
-record PreseqLcextrapResult {
-    id:        String
-    meta:      Map
-    lc_extrap: Path
-    log:       Path
-}
-
 process PRESEQ_LCEXTRAP {
-    tag "$sample.meta.id"
+    tag "$meta.id"
     label 'process_single'
     label 'error_retry'
 
@@ -20,35 +11,37 @@ process PRESEQ_LCEXTRAP {
         'quay.io/biocontainers/preseq:3.2.0--hdcf5f25_6' }"
 
     input:
-    sample: BamInput
+    record(
+        meta: Record,
+        bam:  Path
+    )
 
     output:
     record(
-        id:        sample.id,
-        meta:      sample.meta,
+        meta:      meta,
         lc_extrap: file("*.lc_extrap.txt"),
         log:       file("*.log")
-    ) as PreseqLcextrapResult
+    )
 
     topic:
     tuple(task.process, 'preseq', eval("preseq 2>&1 | sed -n 's/Version: //p'")) >> 'versions'
 
     script:
     def args = (task.ext.args ?: '') + (task.attempt > 1 ? ' -defects' : '')  // Disable testing for defects
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
-    def paired_end = sample.meta.single_end ? '' : '-pe'
+    def prefix = task.ext.prefix ?: "${meta.id}"
+    def paired_end = meta.single_end ? '' : '-pe'
     """
     preseq \\
         lc_extrap \\
         ${args} \\
         ${paired_end} \\
         -output ${prefix}.lc_extrap.txt \\
-        ${sample.bam}
+        ${bam}
     cp .command.err ${prefix}.command.log
     """
 
     stub:
-    def prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def prefix = task.ext.prefix ?: "${meta.id}"
     """
     touch ${prefix}.lc_extrap.txt
     touch ${prefix}.command.log

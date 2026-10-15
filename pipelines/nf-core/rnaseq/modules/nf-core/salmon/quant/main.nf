@@ -1,23 +1,7 @@
 nextflow.enable.types = true
 
-
-record SalmonQuantInput {
-    id:    String
-    meta:  Map
-    reads: List<Path>
-    args:  String?
-}
-
-record SalmonQuantSample {
-    id:                String
-    meta:              Map
-    quant_dir:         Path
-    json_info:         Path?
-    lib_format_counts: Path?
-}
-
 process SALMON_QUANT {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label "process_medium"
 
     conda "${moduleDir}/environment.yml"
@@ -26,19 +10,22 @@ process SALMON_QUANT {
         : 'community.wave.seqera.io/library/salmon:2.7.0--74784226202c61b9'}"
 
     input:
-    sample: SalmonQuantInput
-    index: Path?
-    gtf: Path
-    transcript_fasta: Path?
+    record(
+        meta:             Record,
+        reads:            List<Path>,
+        args:             String?,
+        index:            Path?,
+        gtf:              Path,
+        transcript_fasta: Path?
+    )
 
     output:
     record(
-        id:                sample.id,
-        meta:              sample.meta,
+        meta:              meta,
         quant_dir:         file("${prefix}"),
         json_info:         file("*info.json", optional: true),
         lib_format_counts: file("*lib_format_counts.json", optional: true)
-    ) as SalmonQuantSample
+    )
 
     topic:
     tuple(task.process, 'salmon', eval('salmon --version | sed -e "s/salmon //g"')) >> 'versions'
@@ -47,12 +34,12 @@ process SALMON_QUANT {
     task.ext.when == null || task.ext.when
 
     script:
-    def args = task.ext.args ?: sample.args ?: ''
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    def tool_args = task.ext.args ?: args ?: ''
+    prefix = task.ext.prefix ?: "${meta.id}"
 
     // salmon's -a takes a BAM of reads already aligned to the transcriptome; anything else is reads mode
     // A lone file arrives as a Path, which iterates over its name components.
-    def raw_reads = sample.reads as Object
+    def raw_reads = reads as Object
     def reads_list = raw_reads instanceof List ? (raw_reads as List<Path>) : [raw_reads as Path]
     def alignment_mode = "${reads_list[0]}".endsWith('.bam')
 
@@ -60,19 +47,19 @@ process SALMON_QUANT {
     def input_reads
     if (alignment_mode) {
         if (!transcript_fasta) {
-            error("[Salmon Quant] Alignment mode needs 'transcript_fasta' to be provided as the reference (BAM input detected for sample '${sample.meta.id}').")
+            error("[Salmon Quant] Alignment mode needs 'transcript_fasta' to be provided as the reference (BAM input detected for sample '${meta.id}').")
         }
         reference = "-t ${transcript_fasta}"
         input_reads = "-a ${reads_list.join(' ')}"
     }
     else {
         if (!index) {
-            error("[Salmon Quant] Reads mode needs 'index' to be provided as a salmon index directory (no BAM input detected for sample '${sample.meta.id}').")
+            error("[Salmon Quant] Reads mode needs 'index' to be provided as a salmon index directory (no BAM input detected for sample '${meta.id}').")
         }
-        def reads1 = sample.meta.single_end ? reads_list.join(' ') : reads_list.findAll { r -> reads_list.indexOf(r) % 2 == 0 }.join(' ')
+        def reads1 = meta.single_end ? reads_list.join(' ') : reads_list.findAll { r -> reads_list.indexOf(r) % 2 == 0 }.join(' ')
         def reads2 = reads_list.findAll { r -> reads_list.indexOf(r) % 2 == 1 }.join(' ')
         reference = "--index ${index}"
-        input_reads = sample.meta.single_end ? "-r ${reads1}" : "-1 ${reads1} -2 ${reads2}"
+        input_reads = meta.single_end ? "-r ${reads1}" : "-1 ${reads1} -2 ${reads2}"
     }
 
     """
@@ -81,7 +68,7 @@ process SALMON_QUANT {
         --threads ${task.cpus} \\
         ${reference} \\
         ${input_reads} \\
-        ${args} \\
+        ${tool_args} \\
         -o ${prefix}
 
     if [ -f ${prefix}/aux_info/meta_info.json ]; then
@@ -93,7 +80,7 @@ process SALMON_QUANT {
     """
 
     stub:
-    prefix = task.ext.prefix ?: "${sample.meta.id}"
+    prefix = task.ext.prefix ?: "${meta.id}"
     """
     mkdir ${prefix}
     touch ${prefix}_meta_info.json

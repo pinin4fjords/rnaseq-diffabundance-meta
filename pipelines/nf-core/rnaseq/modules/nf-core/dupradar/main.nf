@@ -1,9 +1,7 @@
 nextflow.enable.types = true
 
-include { BamInput; BamQcDupradar } from '../types'
-
 process DUPRADAR {
-    tag "${sample.meta.id}"
+    tag "${meta.id}"
     label 'process_long'
 
     conda "${moduleDir}/environment.yml"
@@ -12,13 +10,15 @@ process DUPRADAR {
         'community.wave.seqera.io/library/bioconductor-dupradar:1.38.0--831da16eb40a64ab' }"
 
     input:
-    sample: BamInput
-    gtf: Path
+    record(
+        meta: Record,
+        bam:  Path,
+        gtf:  Path
+    )
 
     output:
     record(
-        id:              sample.id,
-        meta:            sample.meta,
+        meta:            meta,
         scatter2d:       file("*_duprateExpDens.pdf"),
         boxplot:         file("*_duprateExpBoxplot.pdf"),
         hist:            file("*_expressionHist.pdf"),
@@ -26,7 +26,7 @@ process DUPRADAR {
         intercept_slope: file("*_intercept_slope.txt"),
         multiqc:         files("*_mqc.txt").toSorted { f -> f.name },
         session_info:    file("*.R_sessionInfo.log")
-    ) as BamQcDupradar
+    )
 
     topic:
     file('versions.yml') >> 'versions'
@@ -36,14 +36,14 @@ process DUPRADAR {
 
     stub:
     """
-    touch ${sample.meta.id}_duprateExpDens.pdf
-    touch ${sample.meta.id}_duprateExpBoxplot.pdf
-    touch ${sample.meta.id}_expressionHist.pdf
-    touch ${sample.meta.id}_dupMatrix.txt
-    touch ${sample.meta.id}_intercept_slope.txt
-    touch ${sample.meta.id}_dup_intercept_mqc.txt
-    touch ${sample.meta.id}_duprateExpDensCurve_mqc.txt
-    touch ${sample.meta.id}.R_sessionInfo.log
+    touch ${meta.id}_duprateExpDens.pdf
+    touch ${meta.id}_duprateExpBoxplot.pdf
+    touch ${meta.id}_expressionHist.pdf
+    touch ${meta.id}_dupMatrix.txt
+    touch ${meta.id}_intercept_slope.txt
+    touch ${meta.id}_dup_intercept_mqc.txt
+    touch ${meta.id}_duprateExpDensCurve_mqc.txt
+    touch ${meta.id}.R_sessionInfo.log
 
     cat <<-END_VERSIONS > versions.yml
     "${task.process}":

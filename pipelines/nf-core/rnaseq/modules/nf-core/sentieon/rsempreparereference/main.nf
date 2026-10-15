@@ -1,16 +1,7 @@
 nextflow.enable.types = true
 
-include { FastaGtfInput } from '../../types'
-
-record SentieonRsempreparereferenceResult {
-    id:               String
-    meta:             Map
-    index:            Path
-    transcript_fasta: Path
-}
-
 process SENTIEON_RSEMPREPAREREFERENCE {
-    tag "$sample.fasta"
+    tag "$fasta"
     label 'process_high'
     label 'sentieon'
 
@@ -20,18 +11,21 @@ process SENTIEON_RSEMPREPAREREFERENCE {
         'community.wave.seqera.io/library/rsem_sentieon:3e4315fa0b636313' }"
 
     input:
-    sample: FastaGtfInput
+    record(
+        meta:  Record,
+        fasta: Path,
+        gtf:   Path
+    )
 
     stage:
-    stageAs sample.fasta, 'rsem/*'
+    stageAs fasta, 'rsem/*'
 
     output:
     record(
-        id:               sample.id,
-        meta:             sample.meta,
+        meta:             meta,
         index:            file("rsem"),
         transcript_fasta: file("*transcripts.fa")
-    ) as SentieonRsempreparereferenceResult
+    )
 
     topic:
     tuple(task.process, 'rsem', eval('rsem-calculate-expression --version | sed -e "s/Current version: RSEM v//g"')) >> 'versions'
@@ -56,17 +50,17 @@ process SENTIEON_RSEMPREPAREREFERENCE {
         STAR \\
             --runMode genomeGenerate \\
             --genomeDir rsem/ \\
-            --genomeFastaFiles $sample.fasta \\
-            --sjdbGTFfile $sample.gtf \\
+            --genomeFastaFiles $fasta \\
+            --sjdbGTFfile $gtf \\
             --runThreadN $task.cpus \\
             $memory \\
             $args2
 
         rsem-prepare-reference \\
-            --gtf $sample.gtf \\
+            --gtf $gtf \\
             --num-threads $task.cpus \\
             ${args_no_star} \\
-            $sample.fasta \\
+            $fasta \\
             rsem/genome
 
         cp rsem/genome.transcripts.fa .
@@ -76,10 +70,10 @@ process SENTIEON_RSEMPREPAREREFERENCE {
         $star_symlink
 
         rsem-prepare-reference \\
-            --gtf $sample.gtf \\
+            --gtf $gtf \\
             --num-threads $task.cpus \\
             $args \\
-            $sample.fasta \\
+            $fasta \\
             rsem/genome
 
         cp rsem/genome.transcripts.fa .

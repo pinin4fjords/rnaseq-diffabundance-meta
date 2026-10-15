@@ -1,15 +1,7 @@
 nextflow.enable.types = true
 
-include { ArchiveInput } from '../types'
-
-record GunzipResult {
-    id:   String
-    meta: Map
-    file: Path
-}
-
 process GUNZIP {
-    tag "${sample.archive}"
+    tag "${archive}"
     label 'process_single'
 
     conda "${moduleDir}/environment.yml"
@@ -18,17 +10,20 @@ process GUNZIP {
         : 'community.wave.seqera.io/library/coreutils_grep_gzip_lbzip2_pruned:838ba80435a629f8'}"
 
     input:
-    sample: ArchiveInput
+    record(
+        meta:    Record,
+        archive: Path
+    )
 
     output:
-    record(id: sample.id, meta: sample.meta, file: file("${gunzip}")) as GunzipResult
+    record(meta: meta, file: file("${gunzip}"))
 
     topic:
     tuple(task.process, 'gunzip', eval('gunzip --version 2>&1 | head -1 | sed "s/^.*(gzip) //; s/ Copyright.*//"')) >> 'versions'
 
     script:
     def args = task.ext.args ?: ''
-    def nameWithoutGz = sample.archive.extension == 'gz' ? sample.archive.baseName : sample.archive.name
+    def nameWithoutGz = archive.extension == 'gz' ? archive.baseName : archive.name
 	def extension = file(nameWithoutGz).extension
 	def name = file(nameWithoutGz).baseName
     def prefix = task.ext.prefix ?: name
@@ -40,12 +35,12 @@ process GUNZIP {
     gzip \\
         -cd \\
         ${args} \\
-        ${sample.archive} \\
+        ${archive} \\
         > ${gunzip}
     """
 
     stub:
-    def nameWithoutGz = sample.archive.extension == 'gz' ? sample.archive.baseName : sample.archive.name
+    def nameWithoutGz = archive.extension == 'gz' ? archive.baseName : archive.name
 	def extension = file(nameWithoutGz).extension
 	def name = file(nameWithoutGz).baseName
     def prefix = task.ext.prefix ?: name

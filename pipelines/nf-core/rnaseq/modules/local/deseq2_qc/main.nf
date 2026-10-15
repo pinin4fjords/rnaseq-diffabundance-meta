@@ -1,26 +1,5 @@
 nextflow.enable.types = true
 
-record Deseq2QcInput {
-    id:                        String
-    meta:                      Map
-    counts_gene_length_scaled: Path
-    args:                      String?
-    label:                     String?
-}
-
-record Deseq2Qc {
-    id:            String
-    meta:          Map
-    rdata:         Path?
-    pca_vals:      Path?
-    plots_pdf:     Path?
-    sample_dists:  Path?
-    size_factors:  Path?
-    log:           Path?
-    pca_multiqc:   Path?
-    dists_multiqc: Path?
-}
-
 process DESEQ2_QC {
     label "process_medium"
 
@@ -32,14 +11,18 @@ process DESEQ2_QC {
         'community.wave.seqera.io/library/r-base_r-optparse_r-ggplot2_r-rcolorbrewer_pruned:9e75394d0bc21987' }"
 
     input:
-    sample: Deseq2QcInput
-    pca_header_multiqc: Path
-    clustering_header_multiqc: Path
+    record(
+        meta:                      Record,
+        counts_gene_length_scaled: Path,
+        args:                      String?,
+        label:                     String?,
+        pca_header_multiqc:        Path,
+        clustering_header_multiqc: Path
+    )
 
     output:
     record(
-        id:            sample.id,
-        meta:          sample.meta,
+        meta:          meta,
         rdata:         file('*.RData',               optional: true),
         pca_vals:      file('*pca.vals.txt',         optional: true),
         plots_pdf:     file('*.pdf',                 optional: true),
@@ -48,7 +31,7 @@ process DESEQ2_QC {
         log:           file('*.log',                 optional: true),
         pca_multiqc:   file('*pca.vals_mqc.tsv',     optional: true),
         dists_multiqc: file('*sample.dists_mqc.tsv', optional: true)
-    ) as Deseq2Qc
+    )
 
     topic:
     file('versions.yml') >> 'versions'
@@ -77,9 +60,9 @@ process DESEQ2_QC {
 
     mkdir size_factors
     touch size_factors/${prefix}.size_factors.RData
-    # One per-sample size_factors file per data column in ${sample.counts_gene_length_scaled}; the
+    # One per-sample size_factors file per data column in ${counts_gene_length_scaled}; the
     # module test snaps these names so the stub must mirror real-run output.
-    for i in `head ${sample.counts_gene_length_scaled} -n 1 | cut -f3-`;
+    for i in `head ${counts_gene_length_scaled} -n 1 | cut -f3-`;
     do
         touch size_factors/\${i}.size_factors.RData
     done

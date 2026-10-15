@@ -116,9 +116,9 @@ workflow PIPELINE_COMPLETION {
     plaintext_email // boolean: Send plain-text email instead of HTML
     monochrome_logs // boolean: Disable ANSI colour codes in log output
     multiqc_report  //  string: Path to MultiQC report
-    trim_status        // channel: record(id, pass) for trimming
-    map_status         // channel: record(id, pass) for mapping
-    strand_status      // channel: record(id, pass) for the strandedness check
+    trim_status        // channel: record(meta, pass) for trimming
+    map_status         // channel: record(meta, pass) for mapping
+    strand_status      // channel: record(meta, pass) for the strandedness check
     params             //  record: the pipeline's params, passed in because an including pipeline has its own
 
     main:
@@ -130,13 +130,13 @@ workflow PIPELINE_COMPLETION {
     def multiqc_reports = multiqc_report.toList()
 
     trim_status
-        .map{ r -> pass_trimmed_reads[r.id] = r.pass }
+        .map{ r -> pass_trimmed_reads[r.meta.id] = r.pass }
 
     map_status
-        .map{ r -> pass_mapped_reads[r.id] = r.pass }
+        .map{ r -> pass_mapped_reads[r.meta.id] = r.pass }
 
     strand_status
-        .map{ r -> pass_strand_check[r.id] = r.pass }
+        .map{ r -> pass_strand_check[r.meta.id] = r.pass }
 
     //
     // Completion email and summary
@@ -215,22 +215,22 @@ def checkSamplesAfterGrouping(input) {
         def transcriptome_bam = transcriptome_bams?.find { bam -> bam != null }
 
         // Add BAM flags and original paths to meta
-        def meta_with_bams = metas[0] + [
+        def meta_with_bams = metas[0] + record(
             has_genome_bam: genome_bam ? true : false,
             has_transcriptome_bam: transcriptome_bam ? true : false,
             original_genome_bam: genome_bam ?: null,
             original_transcriptome_bam: transcriptome_bam ?: null
-        ]
+        )
 
         return [ meta_with_bams, fastqs, genome_bam, transcriptome_bam ]
     } else {
         // Add null BAM fields to meta for consistency
-        def meta_no_bams = metas[0] + [
+        def meta_no_bams = metas[0] + record(
             has_genome_bam: false,
             has_transcriptome_bam: false,
             original_genome_bam: null,
             original_transcriptome_bam: null
-        ]
+        )
         return [ meta_no_bams, fastqs ]
     }
 }
@@ -859,7 +859,7 @@ def getInferexperimentStrandedness(inferexperiment_file, stranded_threshold = 0.
 //
 // Compare a sample's declared / Salmon-inferred strandedness against its
 // RSeQC infer_experiment result. Returns a per-sample record
-// (id, meta, provided, status, salmon, rseqc) where
+// (meta, provided, status, salmon, rseqc) where
 //   - provided = 'auto' when Salmon inferred the strand, else meta.strandedness
 //   - status   = 'pass' / 'fail' from comparing the two methods
 //   - salmon   = Salmon's calculateStrandedness map (or null if no auto-inference)
@@ -885,7 +885,7 @@ def classifyStrand(meta, strand_log, stranded_threshold, unstranded_threshold) {
             status = 'pass'
         }
     }
-    return record(id: meta.id, meta: meta, provided: provided, status: status, salmon: salmon, rseqc: rseqc)
+    return record(meta: meta, provided: provided, status: status, salmon: salmon, rseqc: rseqc)
 }
 
 //
